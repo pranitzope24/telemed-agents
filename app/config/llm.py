@@ -1,1 +1,21 @@
 """LLM config placeholder."""
+from langchain_openai import ChatOpenAI
+
+from ..constants.openai_constants import OpenaiModels
+
+
+class LLMConfig:
+    """LLM configuration class.
+    Usage: 
+        llm_config = LLMConfig(OpenaiModels.GPT_4_1.value, temperature=0.2)
+        llm = llm_config.get_llm_instance()
+    
+    """
+
+    def __init__(self, model_name: str = OpenaiModels.GPT_4_1.value, temperature: float = 0.2):
+        self.model_name = model_name
+        self.temperature = temperature
+    
+    def get_llm_instance(self) -> ChatOpenAI:
+        """Returns an instance of ChatOpenAI with the specified configuration."""
+        return ChatOpenAI(model_name=self.model_name, temperature=self.temperature)
