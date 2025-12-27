@@ -1,0 +1,1 @@
+"""Progress graph pipeline placeholder."""

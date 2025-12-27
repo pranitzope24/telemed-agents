@@ -1,0 +1,1 @@
+"""Progress graph nodes placeholder."""

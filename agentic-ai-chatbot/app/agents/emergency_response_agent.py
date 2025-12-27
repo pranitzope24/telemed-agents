@@ -1,0 +1,1 @@
+"""Emergency response agent placeholder."""

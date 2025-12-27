@@ -1,0 +1,1 @@
+"""Emergency graph nodes placeholder."""

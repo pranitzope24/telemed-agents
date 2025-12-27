@@ -1,0 +1,1 @@
+"""Medical state placeholder."""

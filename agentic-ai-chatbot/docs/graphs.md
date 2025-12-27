@@ -1,0 +1,3 @@
+# Graphs
+
+Placeholder graphs documentation.

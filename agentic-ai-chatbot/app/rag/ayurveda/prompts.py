@@ -1,0 +1,1 @@
+"""Ayurveda RAG prompts placeholder."""

@@ -1,0 +1,1 @@
+"""Symptoms graph prompts placeholder."""

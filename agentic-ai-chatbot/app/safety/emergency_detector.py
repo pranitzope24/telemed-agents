@@ -1,0 +1,1 @@
+"""Emergency detector placeholder."""

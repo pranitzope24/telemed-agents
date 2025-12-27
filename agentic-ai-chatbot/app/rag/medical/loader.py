@@ -1,0 +1,1 @@
+"""Medical corpus loader placeholder."""

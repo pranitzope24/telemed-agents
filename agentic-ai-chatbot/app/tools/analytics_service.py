@@ -1,0 +1,1 @@
+"""Analytics service client placeholder."""

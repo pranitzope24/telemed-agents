@@ -1,0 +1,1 @@
+"""Medical disclaimer helper placeholder."""
