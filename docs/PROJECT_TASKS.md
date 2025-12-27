@@ -21,24 +21,26 @@ This document contains all user stories and tasks for the Agentic AI Chatbot pro
 **As a developer, I want a working development environment so I can start building features.**
 
 **Tasks:**
-- [ ] **TASK-001** 🔴 Set up Python 3.11+ virtual environment (Person A)
+- [ done ] **TASK-001** 🔴 Set up Python 3.11+ virtual environment (Person A)
   - Create venv
   - Document setup in README
   - Estimate: 0.5h
   
-- [ ] **TASK-002** 🔴 Install and configure Redis locally (Person B)
+- [ done ] **TASK-002** 🔴 Install and configure Redis locally (Person B)
   - Install Redis via Docker or native
   - Test connection
   - Document in README
   - Estimate: 1h
   
-- [ ] **TASK-003** 🔴 Install and configure PostgreSQL (Person B)
+- [ done ] **TASK-003** 🔴 Install and configure PostgreSQL (Person B)
   - Install Postgres via Docker or native
   - Create database
   - Document in README
   - Estimate: 1h
+
+  docker-compose.yaml setup - DONE
   
-- [ ] **TASK-004** 🟡 Create requirements.txt with core dependencies (Person A)
+- [ done ] **TASK-004** 🟡 Create requirements.txt with core dependencies (Person A)
   - Add FastAPI, LangChain, LangGraph, Redis, SQLAlchemy
   - Add dev dependencies (pytest, black, ruff)
   - Estimate: 0.5h
