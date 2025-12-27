@@ -64,30 +64,30 @@ This document contains all user stories and tasks for the Agentic AI Chatbot pro
 **As a developer, I want centralized configuration management so settings are consistent across the app.**
 
 **Tasks:**
-- [ ] **TASK-007** 🔴 Implement app/config/settings.py (Person A)
+- [x] **TASK-007** 🔴 Implement app/config/settings.py (Person A)
   - Pydantic Settings class
   - Load from .env
   - Validation
   - Estimate: 2h
   
-- [ ] **TASK-008** 🟡 Implement app/config/llm.py (Person A)
+- [x] **TASK-008** 🟡 Implement app/config/llm.py (Person A)
   - LLM client factory (OpenAI, Anthropic)
   - Temperature/model configuration
   - Estimate: 1.5h
   
-- [ ] **TASK-009** 🟡 Implement app/config/embeddings.py (Person B)
+- [x] **TASK-009** 🟡 Implement app/config/embeddings.py (Person B)
   - Embedding model config
   - Estimate: 1h
   
-- [ ] **TASK-010** 🟡 Implement app/config/models.py (Person B)
+- [x] **TASK-010** 🟡 Implement app/config/models.py (Person B)
   - Model registry/versioning
   - Estimate: 1h
   
-- [ ] **TASK-011** 🟡 Implement app/config/feature_flags.py (Person B)
+- [?] **TASK-011** 🟡 Implement app/config/feature_flags.py (Person B)
   - Feature toggle system
   - Estimate: 1h
   
-- [ ] **TASK-012** Write unit tests for config module (Person A)
+- [-] **TASK-012** Write unit tests for config module (Person A)
   - Test settings loading
   - Test validation
   - Estimate: 1.5h
