@@ -1,4 +1,4 @@
-"""Chat API endpoint with session persistence."""
+"""Chat API endpoint with mock responses."""
 
 from fastapi import APIRouter
 from pydantic import BaseModel
