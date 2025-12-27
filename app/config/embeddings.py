@@ -2,7 +2,9 @@
 from langchain_openai import OpenAIEmbeddings
 
 from ..constants.openai_constants import EmbeddingModels
+from ..utils.logger import get_logger
 
+logger = get_logger()
 
 class EmbeddingsConfig:
     """Embeddings configuration class.
@@ -16,5 +18,6 @@ class EmbeddingsConfig:
 
     def get_model(self) -> str:
         """Returns the embedding model name."""
+        logger.info("OpenAIEmbeddings client initialised with model '%s'", self.model_name)
         return OpenAIEmbeddings(model=self.model_name)
     
