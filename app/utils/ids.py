@@ -3,10 +3,10 @@
 from uuid import uuid4
 
 
-def generate_uuid() -> str:
+def uuid_generator() -> str:
 	"""Return a new UUID4 string."""
 
 	return str(uuid4())
 
 
-__all__ = ["generate_uuid"]
+__all__ = ["uuid_generator"]
