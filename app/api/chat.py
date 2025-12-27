@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 """Chat API endpoint with session persistence."""
-=======
-"""Chat API endpoint with mock responses."""
->>>>>>> a15196a (merged)
 
 from fastapi import APIRouter
 from pydantic import BaseModel
