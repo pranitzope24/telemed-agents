@@ -1,11 +1,12 @@
-"""Chat API endpoint with mock responses."""
+"""Chat API endpoint with supervisor integration."""
 
 from fastapi import APIRouter
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Dict, Any
 from datetime import datetime
 from app.state.graph_state import SessionState
 from app.memory.session_memory import save_session_state, load_session_state
+from app.supervisor.supervisor_graph import run_supervisor
 import uuid
 
 router = APIRouter()
@@ -22,83 +23,91 @@ class ChatResponse(BaseModel):
     response: str
     session_id: str
     intent: Optional[str] = None
+    risk_level: Optional[str] = None
+    active_graph: Optional[str] = None
     message_count: int
     timestamp: str
+    metadata: Dict[str, Any] = {}
+    warning: Optional[str] = None  # Emergency warning message
 
 
 @router.post("/chat")
 async def chat(request: ChatRequest) -> ChatResponse:
-    """Chat endpoint with session persistence."""
+    """Chat endpoint with supervisor integration."""
     
     # ===== 1. Load or create session =====
     if request.session_id:
         state = load_session_state(request.session_id)
         if state:
-            print(f"📂 Loaded existing session: {request.session_id}")
+            print(f"\n📂 Loaded existing session: {request.session_id}")
         else:
-            print(f"⚠️  Session {request.session_id} not found, creating new one")
+            print(f"\n⚠️  Session {request.session_id} not found, creating new one")
             state = SessionState(session_id=request.session_id)
     else:
         session_id = f"session_{uuid.uuid4().hex[:16]}"
         state = SessionState(session_id=session_id)
-        print(f"✨ Created new session: {session_id}")
+        print(f"\n✨ Created new session: {session_id}")
     
     # ===== 2. Add user message =====
     state.add_message("user", request.message)
+    print(f"💬 User message added: {request.message[:50]}...")
     
-    # ===== 3. Mock intent classification =====
-    message_lower = request.message.lower()
-    
-    if any(word in message_lower for word in ["pain", "hurt", "sick", "symptom", "fever", "headache", "nausea"]):
-        state.current_intent = "symptom"
-        state.risk_level = "medium"
-        response_text = "I understand you're experiencing symptoms. Can you tell me more about when they started and how severe they are?"
-    
-    elif any(word in message_lower for word in ["dosha", "ayurveda", "vata", "pitta", "kapha", "constitution"]):
-        state.current_intent = "dosha"
-        response_text = "I can help you discover your Ayurvedic constitution. Let me ask you a few questions about your body type and lifestyle."
-    
-    elif any(word in message_lower for word in ["doctor", "appointment", "book", "consultation", "specialist"]):
-        state.current_intent = "doctor"
-        response_text = "I can help you find and book a doctor. What specialty are you looking for, or would you like me to suggest based on your symptoms?"
-    
-    elif any(word in message_lower for word in ["prescription", "medicine", "medication", "drug", "dosage"]):
-        state.current_intent = "prescription"
-        response_text = "I can provide prescription information. Please note that a licensed doctor must review and approve any prescriptions."
-    
-    elif any(word in message_lower for word in ["emergency", "urgent", "chest pain", "bleeding", "can't breathe", "unconscious"]):
-        state.current_intent = "emergency"
-        state.risk_level = "emergency"
-        state.add_safety_flag("emergency_keywords_detected")
-        response_text = "⚠️ This sounds urgent. If you're experiencing a medical emergency, please call emergency services immediately or go to the nearest emergency room."
-    
-    else:
-        state.current_intent = "general"
-        response_text = (
-            "Hello! I'm your medical assistant. I can help you with:\n\n"
-            "• Symptom analysis and triage\n"
-            "• Ayurvedic dosha assessment\n"
-            "• Finding and booking doctors\n"
-            "• Prescription information\n"
-            "• Progress tracking\n\n"
-            "How can I assist you today?"
+    # ===== 3. Run supervisor for classification and routing =====
+    try:
+        supervisor_result = await run_supervisor(request.message, state)
+        
+        response_text = supervisor_result["response"]
+        
+        # ===== 4. Add assistant response =====
+        state.add_message("assistant", response_text)
+        
+        # ===== 5. Save state to memory =====
+        save_success = save_session_state(state)
+        if save_success:
+            print(f"\n💾 Saved session state: {state.session_id}")
+        else:
+            print(f"\n⚠️  Failed to save session state: {state.session_id}")
+        
+        # ===== 6. Prepare emergency warning if needed =====
+        warning_message = None
+        if state.risk_level == "emergency":
+            warning_message = (
+                "⚠️ EMERGENCY DETECTED: This appears to be a medical emergency. "
+                "Please call emergency services (911) or go to the nearest emergency room immediately. "
+                "Do not rely on this chatbot for emergency medical care."
+            )
+            print(f"\n🚨 Emergency warning issued for session {state.session_id}")
+        
+        # ===== 7. Return response with metadata =====
+        return ChatResponse(
+            response=response_text,
+            session_id=state.session_id,
+            intent=state.current_intent,
+            risk_level=state.risk_level,
+            active_graph=state.active_graph,
+            message_count=state.message_count,
+            timestamp=datetime.now().isoformat(),
+            metadata=supervisor_result.get("metadata", {}),
+            warning=warning_message
         )
     
-    # ===== 4. Add assistant response =====
-    state.add_message("assistant", response_text)
-    
-    # ===== 5. Save state to memory =====
-    save_success = save_session_state(state)
-    if save_success:
-        print(f"💾 Saved session state: {state.session_id}")
-    else:
-        print(f"⚠️  Failed to save session state: {state.session_id}")
-    
-    # ===== 6. Return response =====
-    return ChatResponse(
-        response=response_text,
-        session_id=state.session_id,
-        intent=state.current_intent,
-        message_count=state.message_count,
-        timestamp=datetime.now().isoformat()
-    )
+    except Exception as e:
+        print(f"\n❌ Error in supervisor: {e}")
+        # Fallback response
+        response_text = (
+            "I apologize, but I'm having trouble processing your request. "
+            "Please try again or contact support if the issue persists."
+        )
+        state.add_message("assistant", response_text)
+        save_session_state(state)
+        
+        return ChatResponse(
+            response=response_text,
+            session_id=state.session_id,
+            intent="general",
+            risk_level="low",
+            active_graph=None,
+            message_count=state.message_count,
+            timestamp=datetime.now().isoformat(),
+            metadata={"error": str(e)}
+        )
