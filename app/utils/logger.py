@@ -61,6 +61,6 @@ def get_logger():
         handlers=[stream_handler],
     )
 
-    # Patch HuggingFace's custom logger
-
-    logging.getLogger(__name__).info("Logger initialized")
+    logger = logging.getLogger(__name__)
+    logger.info("Logger initialized")
+    return logger

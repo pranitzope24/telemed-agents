@@ -2,7 +2,7 @@
 from langchain_openai import ChatOpenAI
 
 from ..constants.openai_constants import OpenaiModels
-from ..utils.logger import get_logger
+from ..utils import get_logger
 
 logger = get_logger()
 

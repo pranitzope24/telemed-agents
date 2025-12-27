@@ -106,24 +106,24 @@ This document contains all user stories and tasks for the Agentic AI Chatbot pro
 **As a developer, I want common utilities and structured logging for debugging.**
 
 **Tasks:**
-- [ ] **TASK-013** 🟡 Implement app/utils/logger.py (Person A)
+- [x] **TASK-013** 🟡 Implement app/utils/logger.py (Person A)
   - Structured logging setup
   - Log levels from config
   - Estimate: 1.5h
   
-- [ ] **TASK-014** 🟡 Implement app/utils/ids.py (Person B)
+- [x] **TASK-014** 🟡 Implement app/utils/ids.py (Person B)
   - UUID generation helpers
   - Estimate: 0.5h
   
-- [ ] **TASK-015** 🟡 Implement app/utils/time.py (Person B)
+- [x] **TASK-015** 🟡 Implement app/utils/time.py (Person B)
   - Timestamp utilities
   - Estimate: 0.5h
   
-- [ ] **TASK-016** 🟡 Implement app/utils/retry.py (Person A)
+- [-] **TASK-016** 🟡 Implement app/utils/retry.py (Person A)
   - Retry decorator with exponential backoff
   - Estimate: 1.5h
   
-- [ ] **TASK-017** Write tests for utils module (Both)
+- [-] **TASK-017** Write tests for utils module (Both)
   - Test each utility
   - Estimate: 1h
 

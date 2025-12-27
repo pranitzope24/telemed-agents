@@ -1,10 +1,12 @@
 """Embeddings config placeholder."""
+import logging
+
 from langchain_openai import OpenAIEmbeddings
 
 from ..constants.openai_constants import EmbeddingModels
 from ..utils.logger import get_logger
 
-logger = get_logger()
+logger = get_logger() or logging.getLogger(__name__)
 
 class EmbeddingsConfig:
     """Embeddings configuration class.
