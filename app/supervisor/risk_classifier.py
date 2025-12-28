@@ -1,10 +1,14 @@
 """Risk classification for medical assessment."""
 
-from typing import Dict, List, Any
-from app.supervisor.constants import EMERGENCY_KEYWORDS, RISK_LEVELS
+import json
+from typing import Any, Dict, List
+
 from app.config.llm import LLMConfig
 from app.constants.openai_constants import OpenaiModels
-import json
+from app.supervisor.constants import EMERGENCY_KEYWORDS, RISK_LEVELS
+from app.utils.logger import get_logger
+
+logger = get_logger()
 
 
 RISK_PROMPT = """You are a medical triage AI assistant. Assess the risk level of this patient message.
@@ -53,13 +57,13 @@ async def classify_risk(message: str) -> Dict[str, Any]:
     Returns:
         Dictionary with risk level, reasoning, and metadata
     """
-    print(f"\n🔍 Risk Classifier: Analyzing message...")
+    logger.info("🔍 Risk Classifier: Analyzing message...")
     
     # Step 1: Quick emergency keyword check
     emergency_keywords = check_emergency_keywords(message)
     
     if emergency_keywords:
-        print(f"⚠️  Emergency keywords detected: {emergency_keywords}")
+        logger.warning(f"Emergency keywords detected: {emergency_keywords}")
         return {
             "risk_level": "emergency",
             "reasoning": f"Emergency keywords detected: {', '.join(emergency_keywords)}",
@@ -70,7 +74,7 @@ async def classify_risk(message: str) -> Dict[str, Any]:
     
     # Step 2: LLM-based risk assessment
     try:
-        print("🤖 Using LLM for risk assessment...")
+        logger.info("🤖 Using LLM for risk assessment...")
         llm_config = LLMConfig(model_name=OpenaiModels.GPT_4O_MINI.value, temperature=0.3)
         llm = llm_config.get_llm_instance()
         
@@ -91,10 +95,10 @@ async def classify_risk(message: str) -> Dict[str, Any]:
         # Validate risk level
         risk_level = result.get("risk_level", "medium")
         if risk_level not in RISK_LEVELS:
-            print(f"⚠️  Invalid risk level '{risk_level}', defaulting to 'medium'")
+            logger.warning(f"Invalid risk level '{risk_level}', defaulting to 'medium'")
             risk_level = "medium"
         
-        print(f"✅ Risk classified as: {risk_level} (score: {result.get('urgency_score', 0.5)})")
+        logger.info(f"✅ Risk classified as: {risk_level} (score: {result.get('urgency_score', 0.5)})")
         
         return {
             "risk_level": risk_level,
@@ -105,8 +109,8 @@ async def classify_risk(message: str) -> Dict[str, Any]:
         }
     
     except Exception as e:
-        print(f"❌ Error in risk classification: {e}")
-        print("⚠️  Falling back to 'medium' risk")
+        logger.error(f"Error in risk classification: {e}")
+        logger.warning("Falling back to 'medium' risk")
         # Fallback to medium risk on error
         return {
             "risk_level": "medium",

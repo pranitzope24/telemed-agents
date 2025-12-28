@@ -47,7 +47,7 @@ class EmergencyGraphExecutor(GraphExecutor):
             "completed": False,
         }
 
-        config = self.get_config(session_id)
+        config = self.get_config(state.session_id)
         logger.info(f"📍 Executing {self.graph_name}")
 
         result = await emergency_graph.ainvoke(input_state, config=config)

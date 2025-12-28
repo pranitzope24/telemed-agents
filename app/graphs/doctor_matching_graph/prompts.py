@@ -37,41 +37,21 @@ Example:
 """
 
 
-DOCTOR_PRESENTATION_PROMPT = """Format the available doctors in a clear, conversational way.
+DOCTOR_PRESENTATION_PROMPT = """Provide a brief overview about the available doctors based on the list provided.
 
 Doctors List:
 {doctors_json}
 
 Instructions:
-- Present top 3 doctors
-- Include: name, specialty, rating, experience, location, consultation fee
-- Use emojis for visual appeal (⭐ 📍 💰 🗣️)
-- End with: "Click 'Book Appointment' button to schedule with your preferred doctor."
-- Be warm and helpful
-
-Format each doctor like this:
-**Dr. [Name]** - [Specialty]
-⭐ [Rating] | [Years] years experience
-📍 [Location]
-💰 ₹[Fee] for [Duration] mins
-🗣️ Speaks: [Languages]
+- Give a 3-4 line overview only
+- Mention how many doctors were found and their general specialties
+- Mention the location/city
+- End with: "You can view the complete list of doctors and book an appointment using the button below."
+- Keep it brief and conversational
+- Do NOT list individual doctor details
 
 Example Output:
-Here are the best Ayurvedic doctors in your area:
-
-**1. Dr. Rajesh Sharma** - Panchakarma Specialist
-⭐ 4.8 | 15 years experience
-📍 South Delhi
-💰 ₹600 for 30 mins
-🗣️ Speaks: Hindi, English
-
-**2. Dr. Priya Verma** - Rasayana Expert
-⭐ 4.6 | 10 years experience
-📍 North Delhi
-💰 ₹500 for 30 mins
-🗣️ Speaks: Hindi, English
-
-✨ Click 'Book Appointment' button below to schedule with your preferred doctor.
+Great! I found 3 highly-rated Ayurvedic specialists in Delhi who can help with your condition. They specialize in Panchakarma and Kayachikitsa with ratings above 4.5 stars. You can view the complete list of doctors and book an appointment using the button below.
 """
 
 

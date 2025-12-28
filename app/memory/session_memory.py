@@ -1,8 +1,12 @@
 """Session memory helpers for easy state management."""
 
 from typing import Optional
+
 from app.memory.short_term import redis_memory
 from app.state.graph_state import SessionState
+from app.utils.logger import get_logger
+
+logger = get_logger()
 
 
 def save_session_state(state: SessionState, ttl: int = 3600) -> bool:
@@ -20,7 +24,7 @@ def save_session_state(state: SessionState, ttl: int = 3600) -> bool:
         json_data = state.model_dump_json()
         return redis_memory.set(key, json_data, ttl)
     except Exception as e:
-        print(f"Error saving session {state.session_id}: {e}")
+        logger.error(f"Error saving session {state.session_id}: {e}")
         return False
 
 
@@ -41,7 +45,7 @@ def load_session_state(session_id: str) -> Optional[SessionState]:
             return SessionState.model_validate_json(json_data)
         return None
     except Exception as e:
-        print(f"Error loading session {session_id}: {e}")
+        logger.error(f"Error loading session {session_id}: {e}")
         return None
 
 
@@ -58,7 +62,7 @@ def delete_session_state(session_id: str) -> bool:
         key = f"session:{session_id}:state"
         return redis_memory.delete(key)
     except Exception as e:
-        print(f"Error deleting session {session_id}: {e}")
+        logger.error(f"Error deleting session {session_id}: {e}")
         return False
 
 
@@ -75,5 +79,5 @@ def session_exists(session_id: str) -> bool:
         key = f"session:{session_id}:state"
         return redis_memory.exists(key)
     except Exception as e:
-        print(f"Error checking session {session_id}: {e}")
+        logger.error(f"Error checking session {session_id}: {e}")
         return False
