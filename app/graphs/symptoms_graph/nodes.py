@@ -134,17 +134,50 @@ async def response_generator_node(state: SymptomsGraphState) -> Dict[str, Any]:
     try:
         response = await llm.ainvoke(prompt)
         final_response = response.content.strip()
-        
-        logger.info(f"[response_generator_node] Generated response ({len(final_response)} chars)")
-        
+    except Exception as e:
+        logger.error(f"[response_generator_node] Error generating LLM response: {e}")
+        final_response = "I apologize, but I'm having trouble generating a response. Please consult with a healthcare provider about your symptoms."
         return {
             "final_response": final_response,
             "next_action": "complete"
         }
+    
+    # Check if symptoms warrant doctor consultation (outside try-except)
+    symptoms = state.get("structured_symptoms", [])
+    needs_doctor = any(
+        symp.get("severity") in ["moderate", "severe"] 
+        for symp in symptoms
+    )
+    
+    # If moderate/severe symptoms, offer doctor booking
+    if needs_doctor:
+        logger.info("[response_generator_node] Symptoms warrant doctor consultation")
         
-    except Exception as e:
-        logger.error(f"[response_generator_node] Error generating response: {e}")
-        return {
-            "final_response": "I apologize, but I'm having trouble generating a response. Please consult with a healthcare provider about your symptoms.",
-            "next_action": "complete"
-        }
+        # Add handoff offer to response
+        handoff_question = "\\n\\n**Would you like me to help you find and book a doctor for consultation?**"
+        
+        # Interrupt to ask user (NOT in try-except)
+        user_answer = interrupt({
+            "type": "doctor_handoff_offer",
+            "question": final_response + handoff_question,
+            "symptoms_summary": symptoms_summary.strip(),
+            "structured_symptoms": symptoms
+        })
+        
+        answer_lower = str(user_answer).lower()
+        
+        # Check if user wants to book doctor
+        if any(word in answer_lower for word in ["yes", "book", "find", "doctor", "ok", "sure"]):
+            logger.info("[response_generator_node] User wants doctor booking, setting handoff")
+            return {
+                "final_response": final_response,
+                "next_action": "handoff_doctor",
+                "structured_symptoms": symptoms  # Pass symptoms for handoff
+            }
+    
+    logger.info(f"[response_generator_node] Generated response ({len(final_response)} chars)")
+    
+    return {
+        "final_response": final_response,
+        "next_action": "complete"
+    }

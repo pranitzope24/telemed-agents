@@ -60,6 +60,12 @@ class SessionState(BaseState):
     triage_outcome: Optional[Literal["needs_doctor", "self_care", "emergency"]] = None
     suggested_specialties: List[str] = Field(default_factory=list)
     
+    # ===== Doctor Booking Context =====
+    user_location_city: Optional[str] = None
+    user_location_state: Optional[str] = None
+    user_insurance: Optional[str] = None
+    booked_appointments: List[Dict[str, Any]] = Field(default_factory=list)
+    
     # ===== Flow Control =====
     status: Literal["active", "waiting", "completed", "terminated"] = "active"
     waiting_for_user_input: bool = False

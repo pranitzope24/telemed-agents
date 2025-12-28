@@ -140,14 +140,103 @@ class SymptomsGraphExecutor(GraphExecutor):
         if "__interrupt__" in result:
             return self.handle_interrupt(result, state, intent_result, risk_result)
         else:
+            # Check if we need to handoff to doctor_matching_graph
+            next_action = result.get("next_action")
+            if next_action == "handoff_doctor":
+                logger.info("[SymptomsGraphExecutor] Handoff to doctor_matching_graph requested")
+                
+                # Prepare handoff data
+                state.handoff_data = {
+                    "source": "symptoms_graph",
+                    "symptoms_summary": self._build_symptoms_summary(result),
+                    "structured_symptoms": result.get("structured_symptoms", []),
+                    "suggested_specialties": self._extract_specialties(result),
+                    "urgency_level": self._determine_urgency(result)
+                }
+                
+                # Update session state
+                state.suggested_specialties = state.handoff_data["suggested_specialties"]
+                state.reported_symptoms = [
+                    symp.get("name", "") for symp in result.get("structured_symptoms", [])
+                ]
+                
+                # Complete current graph
+                state.complete_graph()
+                
+                # Start doctor matching graph
+                state.start_graph("doctor_matching_graph")
+                
+                # Execute doctor matching graph
+                from app.supervisor.graph_executors import get_graph_executor
+                doctor_executor = get_graph_executor("doctor_matching_graph")
+                
+                return await doctor_executor.execute(
+                    message="", 
+                    state=state, 
+                    intent_result=intent_result, 
+                    risk_result=risk_result
+                )
+            
             return self.handle_completion(result, state, intent_result, risk_result)
+    
+    def _build_symptoms_summary(self, result: Dict[str, Any]) -> str:
+        """Build a summary of symptoms for handoff."""
+        symptoms = result.get("structured_symptoms", [])
+        if not symptoms:
+            return result.get("raw_symptoms", "")
+        
+        summary_parts = []
+        for symp in symptoms:
+            parts = [symp.get("name", "")]
+            if symp.get("severity"):
+                parts.append(f"({symp['severity']})")
+            if symp.get("duration"):
+                parts.append(f"for {symp['duration']}")
+            summary_parts.append(" ".join(parts))
+        
+        return ", ".join(summary_parts)
+    
+    def _extract_specialties(self, result: Dict[str, Any]) -> List[str]:
+        """Extract or infer specialties from symptoms."""
+        # Simple mapping - in production, use LLM
+        symptoms = result.get("structured_symptoms", [])
+        specialties = set()
+        
+        for symp in symptoms:
+            name = symp.get("name", "").lower()
+            if any(word in name for word in ["skin", "rash", "acne"]):
+                specialties.add("Dermatology")
+            elif any(word in name for word in ["heart", "chest", "pressure"]):
+                specialties.add("Cardiology")
+            elif any(word in name for word in ["stomach", "digestion", "nausea"]):
+                specialties.add("Gastroenterology")
+            elif any(word in name for word in ["headache", "migraine", "nerve"]):
+                specialties.add("Neurology")
+            elif any(word in name for word in ["joint", "bone", "fracture"]):
+                specialties.add("Orthopedics")
+        
+        return list(specialties) if specialties else ["General Medicine"]
+    
+    def _determine_urgency(self, result: Dict[str, Any]) -> str:
+        """Determine urgency level from symptoms."""
+        symptoms = result.get("structured_symptoms", [])
+        
+        for symp in symptoms:
+            if symp.get("severity") == "severe":
+                return "high"
+            elif symp.get("severity") == "moderate":
+                return "medium"
+        
+        return "low"
     
     def _build_pause_metadata(self, interrupt_data: Dict[str, Any]) -> Dict[str, Any]:
         """Build symptoms-specific pause metadata."""
         return {
             "type": interrupt_data.get("type"),
             "missing_info": interrupt_data.get("missing_info", []),
-            "iteration": interrupt_data.get("iteration", 0)
+            "iteration": interrupt_data.get("iteration", 0),
+            "symptoms_summary": interrupt_data.get("symptoms_summary"),
+            "structured_symptoms": interrupt_data.get("structured_symptoms")
         }
     
     def _build_completion_metadata(self, result: Dict[str, Any]) -> Dict[str, Any]:
@@ -235,10 +324,111 @@ class DoshaGraphExecutor(GraphExecutor):
         return "Thank you for completing the dosha assessment."
 
 
+class DoctorMatchingGraphExecutor(GraphExecutor):
+    """Executor for doctor matching graph."""
+    
+    def __init__(self):
+        super().__init__("doctor_matching_graph")
+    
+    async def resume(self, message: str, session_id: str) -> Dict[str, Any]:
+        """Resume doctor matching graph with user's answer."""
+        from app.graphs.doctor_matching_graph.graph import doctor_matching_graph
+        
+        config = self.get_config(session_id)
+        result = await doctor_matching_graph.ainvoke(Command(resume=message), config=config)
+        
+        return result
+    
+    async def execute(self, message: str, state: SessionState, intent_result: Dict, risk_result: Dict) -> Dict[str, Any]:
+        """Execute simplified doctor matching graph."""
+        from app.graphs.doctor_matching_graph.graph import doctor_matching_graph
+        
+        # Check for handoff data from previous graph (may be empty if called directly)
+        handoff_data = state.handoff_data if state.handoff_data else {}
+        
+        # Build session context for symptoms triage - ALWAYS pass this
+        # This allows the graph to check conversation history even without handoff
+        recent_messages = state.get_recent_messages(n=15)  # Increased to 15 for better context
+        session_context = {
+            "reported_symptoms": state.reported_symptoms,
+            "recent_messages": [
+                {"role": msg.role, "content": msg.content}
+                for msg in recent_messages
+            ],
+            "user_location_city": state.user_location_city,
+            "suggested_specialties": state.suggested_specialties
+        }
+        
+        logger.info(f"[DoctorMatchingExecutor] Handoff data: {bool(handoff_data)}, Reported symptoms: {state.reported_symptoms}, Recent messages: {len(recent_messages)}")
+        
+        # Simplified input state matching the new TypedDict
+        input_state = {
+            "user_message": message,
+            
+            # Input from handoff (may be empty if direct call)
+            "symptoms_summary": handoff_data.get("symptoms_summary", ""),
+            "structured_symptoms": handoff_data.get("structured_symptoms", []),
+            "severity_level": handoff_data.get("urgency_level", ""),
+            "handoff_source": handoff_data.get("source", ""),
+            
+            # Session context from global state - CRITICAL for conversation memory
+            "session_context": session_context,
+            
+            # Will be collected during flow
+            "confirmed_specialties": [],
+            "user_location_city": "",
+            
+            # Will be populated by graph
+            "available_doctors": [],
+            "final_response": "",
+            "next_action": "complete",
+            "booking_context": {}
+        }
+        
+        config = self.get_config(state.session_id)
+        logger.info(f"📍 Executing simplified {self.graph_name}")
+        
+        result = await doctor_matching_graph.ainvoke(input_state, config=config)
+        
+        if "__interrupt__" in result:
+            return self.handle_interrupt(result, state, intent_result, risk_result)
+        else:
+            # Store available doctors in session state for UI
+            if result.get("available_doctors"):
+                state.available_doctors = result["available_doctors"]
+            if result.get("booking_context"):
+                state.booking_context = result["booking_context"]
+            
+            return self.handle_completion(result, state, intent_result, risk_result)
+    
+    def _build_pause_metadata(self, interrupt_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Build doctor matching specific pause metadata."""
+        return {
+            "type": interrupt_data.get("type"),
+            "doctors": interrupt_data.get("doctors"),
+            "available_slots": interrupt_data.get("available_slots"),
+            "booking_details": interrupt_data.get("booking_details")
+        }
+    
+    def _build_completion_metadata(self, result: Dict[str, Any]) -> Dict[str, Any]:
+        """Build doctor matching specific completion metadata."""
+        return {
+            "next_action": result.get("next_action"),
+            "appointment_id": result.get("appointment_id"),
+            "selected_doctor": result.get("selected_doctor", {}).get("name"),
+            "appointment_date": result.get("preferred_date"),
+            "appointment_time": result.get("selected_time_slot")
+        }
+    
+    def _get_default_completion_message(self) -> str:
+        return "Thank you for using our doctor booking service."
+
+
 # Registry of all graph executors
 GRAPH_EXECUTORS = {
     "symptoms_graph": SymptomsGraphExecutor(),
     "dosha_graph": DoshaGraphExecutor(),
+    "doctor_matching_graph": DoctorMatchingGraphExecutor(),
 }
 
 
