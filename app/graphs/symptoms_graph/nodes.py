@@ -25,18 +25,23 @@ async def symptom_triage_node(state: SymptomsGraphState) -> dict:
     # Analyze symptoms
     result = await agent.analyze(
         message=state["user_message"],
-        context=state.get("answers_collected", {})
+        context=state.get("answers_collected", [])
     )
     
-    logger.info(f"[symptom_triage_node] Extracted {len(result['symptoms'])} symptoms, needs_more_info={result['needs_more_info']}")
+    logger.info(f"[symptom_triage_node] Extracted {result} symptoms, needs_more_info={result['needs_more_info']}")
     
     # Return only the fields we want to update
-    return {
+    updates = {
         "structured_symptoms": result["symptoms"],
         "needs_more_info": result["needs_more_info"],
-        "missing_info": result["missing_info"],
-        "raw_symptoms": state["user_message"]
+        "missing_info": result["missing_info"]
     }
+    
+    # Only set raw_symptoms on first message (when it's not set yet)
+    if not state.get("raw_symptoms"):
+        updates["raw_symptoms"] = state["user_message"]
+    
+    return updates
 
 
 async def followup_node(state: SymptomsGraphState) -> Command:
@@ -82,8 +87,9 @@ async def followup_node(state: SymptomsGraphState) -> Command:
     logger.info(f"[followup_node] Received answer: {user_answer[:100] if isinstance(user_answer, str) else user_answer}...")
     
     # Update state and route back to triage for re-analysis
-    updated_answers = state.get("answers_collected", {}).copy()
-    updated_answers[question] = str(user_answer)
+    # Store answers only (not Q&A pairs) - questions are tracked separately in questions_asked
+    updated_answers = state.get("answers_collected", []).copy() if isinstance(state.get("answers_collected"), list) else []
+    updated_answers.append(str(user_answer))
     
     return Command(
         goto="symptom_triage",
@@ -122,14 +128,16 @@ async def response_generator_node(state: SymptomsGraphState) -> Dict[str, Any]:
     additional_context = ""
     if state.get("answers_collected"):
         additional_context = "Follow-up information provided:\\n"
-        for q, a in state["answers_collected"].items():
-            additional_context += f"Q: {q}\\nA: {a}\\n\\n"
+        for i, answer in enumerate(state["answers_collected"], 1):
+            additional_context += f"{i}. {answer}\\n"
     
     # Generate response
     prompt = RESPONSE_GENERATOR_PROMPT.format(
         symptoms_summary=symptoms_summary.strip(),
         additional_context=additional_context.strip() or "(No additional context)"
     )
+
+    logger.info(f"[response_generator_node] Sending prompt to LLM : {prompt}")
     
     try:
         response = await llm.ainvoke(prompt)
@@ -142,42 +150,41 @@ async def response_generator_node(state: SymptomsGraphState) -> Dict[str, Any]:
             "next_action": "complete"
         }
     
-    # Check if symptoms warrant doctor consultation (outside try-except)
+    # Check severity level and handle doctor consultation accordingly
     symptoms = state.get("structured_symptoms", [])
-    needs_doctor = any(
-        symp.get("severity") in ["moderate", "severe"] 
-        for symp in symptoms
-    )
+    has_severe = any(symp.get("severity") == "severe" for symp in symptoms)
     
-    # If moderate/severe symptoms, offer doctor booking
-    if needs_doctor:
-        logger.info("[response_generator_node] Symptoms warrant doctor consultation")
-        
-        # Add handoff offer to response
+    # Determine the message based on severity
+    if has_severe:
+        logger.info("[response_generator_node] SEVERE symptoms detected - adding urgent consultation notice")
+        handoff_question = "\\n\\n⚠️ **URGENT: Your symptoms appear to be severe. Please consult a doctor as soon as possible.**\\n\\nWould you like me to help you find a doctor for immediate consultation?"
+    else:
+        # For moderate, mild, or unspecified - always offer doctor consultation
+        logger.info("[response_generator_node] Offering doctor consultation")
         handoff_question = "\\n\\n**Would you like me to help you find and book a doctor for consultation?**"
-        
-        # Interrupt to ask user (NOT in try-except)
-        user_answer = interrupt({
-            "type": "doctor_handoff_offer",
-            "question": final_response + handoff_question,
-            "symptoms_summary": symptoms_summary.strip(),
+    
+    # Interrupt to ask user
+    user_answer = interrupt({
+        "type": "doctor_handoff_offer",
+        "question": final_response + handoff_question,
+        "symptoms_summary": symptoms_summary.strip(),
+        "structured_symptoms": symptoms
+    })
+    
+    answer_lower = str(user_answer).lower()
+    
+    # Check if user wants to book doctor
+    if any(word in answer_lower for word in ["yes", "book", "find", "doctor", "ok", "sure"]):
+        logger.info("[response_generator_node] User wants doctor booking, setting handoff")
+        return {
+            "final_response": final_response,
+            "next_action": "handoff_doctor",
             "structured_symptoms": symptoms
-        })
-        
-        answer_lower = str(user_answer).lower()
-        
-        # Check if user wants to book doctor
-        if any(word in answer_lower for word in ["yes", "book", "find", "doctor", "ok", "sure"]):
-            logger.info("[response_generator_node] User wants doctor booking, setting handoff")
-            return {
-                "final_response": final_response,
-                "next_action": "handoff_doctor",
-                "structured_symptoms": symptoms  # Pass symptoms for handoff
-            }
+        }
     
-    logger.info(f"[response_generator_node] Generated response ({len(final_response)} chars)")
-    
+    logger.info(f"[response_generator_node] User declined doctor consultation")
+    logger.info(f"final state in response_generator_node: {state}")
     return {
-        "final_response": final_response,
+        "final_response": "do you have any other questions or concerns?",
         "next_action": "complete"
     }

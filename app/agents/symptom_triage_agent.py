@@ -32,12 +32,12 @@ class SymptomTriageAgent:
         # Get structured output LLM
         self.llm = llm_config.get_llm_instance().with_structured_output(SymptomAnalysisResult)
     
-    async def analyze(self, message: str, context: Dict[str, str] = None) -> Dict[str, Any]:
+    async def analyze(self, message: str, context: List[str] = None) -> Dict[str, Any]:
         """Extract structured symptoms and identify missing information.
         
         Args:
             message: User's symptom description
-            context: Previous Q&A context from follow-ups
+            context: Previous answers from follow-ups (list of strings)
             
         Returns:
             Dict with:
@@ -50,7 +50,7 @@ class SymptomTriageAgent:
         # Build context string
         context_str = ""
         if context:
-            context_str = "\n".join([f"Q: {q}\nA: {a}" for q, a in context.items()])
+            context_str = "\n".join([f"- {answer}" for answer in context])
         
         prompt = f"""You are a medical symptom analyzer. Extract structured information from the patient's description.
 
@@ -60,53 +60,48 @@ Previous Context:
 Current Message:
 {message}
 
-Extract ALL symptoms mentioned and their details. For each symptom, extract:
-- name: The symptom (e.g., "fever", "headache", "cough")
-- duration: How long they've had it (e.g., "2 days", "1 week", "since yesterday"). If not mentioned, use null.
-- severity: "mild", "moderate", or "severe". If not mentioned, use null.
-- location: Body part/area (e.g., "head", "chest", "stomach"). If not mentioned or not applicable, use null.
+Your task:
+1. Extract ALL symptoms mentioned and their details
+2. Identify CRITICAL information that is still missing and needed for safe guidance
 
-Also determine what critical information is STILL MISSING (only if truly not provided in the message).
+For each symptom, extract:
+- name: The symptom (e.g., "fever", "headache", "cough")
+- duration: How long they've had it (e.g., "2 days", "since yesterday"). If not mentioned, use null.
+- severity: One of "mild", "moderate", or "severe".
+  Infer severity if possible using these rules:
+    * "severe", "unbearable", "can't sleep", "worst ever", "getting much worse" → severe
+    * "moderate", "uncomfortable", "affecting daily activities" → moderate
+    * "mild", "slight", "bearable", "not too bad" → mild
+  If there are truly no clues, use null.
+- location: Body part or area (e.g., "head", "chest"). If not mentioned or not applicable, use null.
+
+CRITICAL MISSING INFORMATION RULES:
+- Duration and severity are CRITICAL for most symptoms
+- Location is critical when relevant (e.g., pain)
+- Do NOT mark information as missing if it is clearly provided
+- Do NOT mark information as missing if the user explicitly says they don't know
+- If a symptom has duration or severity as null, AND it is important for understanding the symptom, add it to missing_info
 
 IMPORTANT:
-- If duration is mentioned (like "for 2 days", "since yesterday"), include it - don't mark as missing
-- If severity is mentioned (like "moderate", "mild pain", "severe headache"), include it - don't mark as missing
-- If user says "no other symptoms", don't mark anything as missing
-- Only mark as missing if it's CRITICAL and NOT provided
-- Use null for fields that aren't mentioned or don't apply"""
+- If duration is mentioned (e.g., "for 2 days"), include it and do NOT mark it missing
+- If severity is mentioned or can be inferred, include it and do NOT mark it missing
+- If the user says "no other symptoms", do NOT mark anything as missing
+- Do NOT invent information
+- Be conservative but explicit about what is missing
+
+"""
+
         
         try:
             # Structured output automatically returns SymptomAnalysisResult object
             result: SymptomAnalysisResult = await self.llm.ainvoke(prompt)
             
+            logger.info(f"Symptom analysis completed successfully: {result}")
+            
             # Convert Pydantic models to dicts for compatibility
             symptoms = [symptom.model_dump() for symptom in result.symptoms]
             needs_more_info = result.needs_more_info
             missing_info = result.missing_info
-            
-            # Validate: only mark as needing more info if critical fields are missing
-            # Don't auto-add missing fields if symptom data looks complete
-            if symptoms:
-                actually_missing = []
-                for symptom in symptoms:
-                    # Only require name - duration and severity are optional
-                    # Most symptoms have been described if we have name + at least one other field
-                    has_details = (
-                        symptom.get("duration") or 
-                        symptom.get("severity") or 
-                        symptom.get("location")
-                    )
-                    
-                    # If symptom has NO details at all, we might need more info
-                    if not has_details and symptom.get("name"):
-                        if not symptom.get("duration"):
-                            actually_missing.append("duration")
-                        if not symptom.get("severity"):
-                            actually_missing.append("severity")
-                
-                # Deduplicate and only set missing if we found truly missing fields
-                missing_info = list(set(actually_missing)) if actually_missing else []
-                needs_more_info = len(missing_info) > 0
             
             logger.info(f"Extracted {len(symptoms)} symptoms: {[s.get('name') for s in symptoms]}")
             logger.info(f"Details: {symptoms}")

@@ -39,5 +39,4 @@ class DoshaGraphState(TypedDict):
     
     # ===== Output =====
     final_response: Optional[str]
-    safety_flags: List[str]
     next_action: Literal["complete", "handoff"]

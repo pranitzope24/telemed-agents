@@ -42,12 +42,10 @@ class SymptomsGraphExecutor(GraphExecutor):
                 "source": "symptoms_graph",
                 "symptoms_summary": self._build_symptoms_summary(result),
                 "structured_symptoms": result.get("structured_symptoms", []),
-                "suggested_specialties": self._extract_specialties(result),
                 "urgency_level": self._determine_urgency(result)
             }
             
             # Update session state
-            state.suggested_specialties = state.handoff_data["suggested_specialties"]
             state.reported_symptoms = [
                 symp.get("name", "") for symp in result.get("structured_symptoms", [])
             ]
@@ -119,26 +117,6 @@ class SymptomsGraphExecutor(GraphExecutor):
         
         return ", ".join(summary_parts)
     
-    def _extract_specialties(self, result: Dict[str, Any]) -> List[str]:
-        """Extract or infer specialties from symptoms."""
-        # Simple mapping - in production, use LLM
-        symptoms = result.get("structured_symptoms", [])
-        specialties = set()
-        
-        for symp in symptoms:
-            name = symp.get("name", "").lower()
-            if any(word in name for word in ["skin", "rash", "acne"]):
-                specialties.add("Dermatology")
-            elif any(word in name for word in ["heart", "chest", "pressure"]):
-                specialties.add("Cardiology")
-            elif any(word in name for word in ["stomach", "digestion", "nausea"]):
-                specialties.add("Gastroenterology")
-            elif any(word in name for word in ["headache", "migraine", "nerve"]):
-                specialties.add("Neurology")
-            elif any(word in name for word in ["joint", "bone", "fracture"]):
-                specialties.add("Orthopedics")
-        
-        return list(specialties) if specialties else ["General Medicine"]
     
     def _determine_urgency(self, result: Dict[str, Any]) -> str:
         """Determine urgency level from symptoms."""
