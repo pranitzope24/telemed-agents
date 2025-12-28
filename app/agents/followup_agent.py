@@ -1,6 +1,7 @@
 """Follow-up agent for generating clarifying questions."""
 
 from typing import List, Dict, Any
+from pydantic import BaseModel, Field
 from app.config.llm import LLMConfig
 from app.constants.openai_constants import OpenaiModels
 from app.utils.logger import get_logger
@@ -8,12 +9,19 @@ from app.utils.logger import get_logger
 logger = get_logger()
 
 
+class FollowupQuestion(BaseModel):
+    """Generated follow-up question."""
+    question: str = Field(description="A clear, empathetic follow-up question to ask the patient")
+    reasoning: str = Field(description="Brief explanation of why this question is important")
+
+
 class FollowupAgent:
     """Agent to generate relevant follow-up questions."""
     
     def __init__(self):
         llm_config = LLMConfig(model_name=OpenaiModels.GPT_4O_MINI.value, temperature=0.7)
-        self.llm = llm_config.get_llm_instance()
+        # Get structured output LLM
+        self.llm = llm_config.get_llm_instance().with_structured_output(FollowupQuestion)
     
     async def generate_question(self, 
                                symptoms: List[Dict[str, Any]], 
@@ -62,17 +70,12 @@ Examples:
 Your question:"""
         
         try:
-            response = await self.llm.ainvoke(prompt)
-            question = response.content.strip()
+            # Structured output automatically returns FollowupQuestion object
+            result: FollowupQuestion = await self.llm.ainvoke(prompt)
             
-            # Clean up the response
-            if question.startswith('"'):
-                question = question.strip('"')
-            if question.startswith('Question:'):
-                question = question.replace('Question:', '').strip()
-            
-            logger.info(f"Generated question: {question}")
-            return question
+            logger.info(f"Generated question: {result.question}")
+            logger.info(f"Reasoning: {result.reasoning}")
+            return result.question
             
         except Exception as e:
             logger.error(f"Error generating follow-up: {e}")

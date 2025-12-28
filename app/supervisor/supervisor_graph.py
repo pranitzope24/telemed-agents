@@ -31,11 +31,17 @@ async def handle_graph_resume(message: str, state: SessionState) -> Dict[str, An
         # Resume the graph
         result = await executor.resume(message, state.session_id)
         
-        # Handle the result (pause or completion)
+        # Handle the result (pause, handoff, or completion)
         if "__interrupt__" in result:
             return executor.handle_interrupt(result, state)
         else:
-            return executor.handle_completion(result, state)
+            # Check if executor has custom result handling (for handoffs)
+            if hasattr(executor, '_handle_result'):
+                # Executor will handle handoff logic (e.g., symptoms → doctor matching)
+                return await executor._handle_result(result, state)
+            else:
+                # Standard completion
+                return executor.handle_completion(result, state)
             
     except ValueError as e:
         logger.error(f"Unknown graph type: {state.active_graph}")

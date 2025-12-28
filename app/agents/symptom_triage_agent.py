@@ -1,6 +1,7 @@
 """Symptom triage agent for extracting and analyzing symptoms."""
 
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
+from pydantic import BaseModel, Field
 from app.config.llm import LLMConfig
 from app.constants.openai_constants import OpenaiModels
 from app.utils.logger import get_logger
@@ -8,12 +9,28 @@ from app.utils.logger import get_logger
 logger = get_logger()
 
 
+class SymptomData(BaseModel):
+    """Structured symptom information."""
+    name: str = Field(description="The main symptom (e.g., 'fever', 'headache', 'cough')")
+    duration: Optional[str] = Field(None, description="How long they've had it (e.g., '2 days', '1 week', 'since yesterday')")
+    severity: Optional[str] = Field(None, description="Severity level: 'mild', 'moderate', or 'severe'")
+    location: Optional[str] = Field(None, description="Body part/area (e.g., 'head', 'chest', 'stomach')")
+
+
+class SymptomAnalysisResult(BaseModel):
+    """Result of symptom analysis."""
+    symptoms: List[SymptomData] = Field(description="List of extracted symptoms with details")
+    needs_more_info: bool = Field(description="Whether additional information is needed")
+    missing_info: List[str] = Field(default_factory=list, description="List of missing critical information (e.g., ['duration', 'severity'])")
+
+
 class SymptomTriageAgent:
     """Agent to extract structured symptom information."""
     
     def __init__(self):
         llm_config = LLMConfig(model_name=OpenaiModels.GPT_4O_MINI.value, temperature=0.3)
-        self.llm = llm_config.get_llm_instance()
+        # Get structured output LLM
+        self.llm = llm_config.get_llm_instance().with_structured_output(SymptomAnalysisResult)
     
     async def analyze(self, message: str, context: Dict[str, str] = None) -> Dict[str, Any]:
         """Extract structured symptoms and identify missing information.
@@ -37,86 +54,68 @@ class SymptomTriageAgent:
         
         prompt = f"""You are a medical symptom analyzer. Extract structured information from the patient's description.
 
-Extract:
-- name: Main symptom (e.g., "headache", "fever", "cough")
-- duration: How long (e.g., "3 days", "since yesterday", "2 weeks")
-- severity: mild, moderate, or severe
-- location: Body part/area (e.g., "frontal", "chest", "left arm")
-- associated_symptoms: Other symptoms mentioned
-
 Previous Context:
 {context_str if context_str else "(None)"}
 
 Current Message:
 {message}
 
-Respond in this EXACT format:
-SYMPTOMS: [list each symptom with available details]
-NEEDS_MORE_INFO: yes/no
-MISSING: [list what's missing: duration, severity, location]
+Extract ALL symptoms mentioned and their details. For each symptom, extract:
+- name: The symptom (e.g., "fever", "headache", "cough")
+- duration: How long they've had it (e.g., "2 days", "1 week", "since yesterday"). If not mentioned, use null.
+- severity: "mild", "moderate", or "severe". If not mentioned, use null.
+- location: Body part/area (e.g., "head", "chest", "stomach"). If not mentioned or not applicable, use null.
 
-Example:
-SYMPTOMS: headache (moderate, frontal, 3 days)
-NEEDS_MORE_INFO: no
-MISSING: none
-"""
+Also determine what critical information is STILL MISSING (only if truly not provided in the message).
+
+IMPORTANT:
+- If duration is mentioned (like "for 2 days", "since yesterday"), include it - don't mark as missing
+- If severity is mentioned (like "moderate", "mild pain", "severe headache"), include it - don't mark as missing
+- If user says "no other symptoms", don't mark anything as missing
+- Only mark as missing if it's CRITICAL and NOT provided
+- Use null for fields that aren't mentioned or don't apply"""
         
         try:
-            response = await self.llm.ainvoke(prompt)
-            content = response.content.strip()
+            # Structured output automatically returns SymptomAnalysisResult object
+            result: SymptomAnalysisResult = await self.llm.ainvoke(prompt)
             
-            # Parse response
-            symptoms = []
-            needs_more_info = False
-            missing_info = []
+            # Convert Pydantic models to dicts for compatibility
+            symptoms = [symptom.model_dump() for symptom in result.symptoms]
+            needs_more_info = result.needs_more_info
+            missing_info = result.missing_info
             
-            for line in content.split('\n'):
-                if line.startswith('SYMPTOMS:'):
-                    symptom_text = line.replace('SYMPTOMS:', '').strip()
-                    # Simple parsing - extract what we can
-                    symptom_data = {
-                        "name": symptom_text.split('(')[0].strip() if '(' in symptom_text else symptom_text,
-                        "duration": None,
-                        "severity": None,
-                        "location": None
-                    }
-                    # Try to extract severity, location, duration from parentheses
-                    if '(' in symptom_text:
-                        details = symptom_text.split('(')[1].split(')')[0]
-                        detail_parts = [d.strip() for d in details.split(',')]
-                        for detail in detail_parts:
-                            if any(sev in detail.lower() for sev in ['mild', 'moderate', 'severe']):
-                                symptom_data["severity"] = detail
-                            elif any(dur in detail.lower() for dur in ['day', 'week', 'month', 'hour', 'yesterday', 'ago']):
-                                symptom_data["duration"] = detail
-                            else:
-                                symptom_data["location"] = detail
-                    symptoms.append(symptom_data)
-                    
-                elif line.startswith('NEEDS_MORE_INFO:'):
-                    needs_more_info = 'yes' in line.lower()
-                    
-                elif line.startswith('MISSING:'):
-                    missing_text = line.replace('MISSING:', '').strip().lower()
-                    if 'none' not in missing_text:
-                        missing_info = [m.strip() for m in missing_text.split(',') if m.strip()]
-            
-            # If we have empty fields, we need more info
+            # Validate: only mark as needing more info if critical fields are missing
+            # Don't auto-add missing fields if symptom data looks complete
             if symptoms:
+                actually_missing = []
                 for symptom in symptoms:
-                    if not symptom.get("duration") and "duration" not in missing_info:
-                        missing_info.append("duration")
-                    if not symptom.get("severity") and "severity" not in missing_info:
-                        missing_info.append("severity")
+                    # Only require name - duration and severity are optional
+                    # Most symptoms have been described if we have name + at least one other field
+                    has_details = (
+                        symptom.get("duration") or 
+                        symptom.get("severity") or 
+                        symptom.get("location")
+                    )
+                    
+                    # If symptom has NO details at all, we might need more info
+                    if not has_details and symptom.get("name"):
+                        if not symptom.get("duration"):
+                            actually_missing.append("duration")
+                        if not symptom.get("severity"):
+                            actually_missing.append("severity")
+                
+                # Deduplicate and only set missing if we found truly missing fields
+                missing_info = list(set(actually_missing)) if actually_missing else []
+                needs_more_info = len(missing_info) > 0
             
-            needs_more_info = needs_more_info or len(missing_info) > 0
-            
-            logger.info(f"Extracted {len(symptoms)} symptoms, needs_more_info={needs_more_info}")
+            logger.info(f"Extracted {len(symptoms)} symptoms: {[s.get('name') for s in symptoms]}")
+            logger.info(f"Details: {symptoms}")
+            logger.info(f"Needs more info: {needs_more_info}, Missing: {missing_info}")
             
             return {
                 "symptoms": symptoms,
                 "needs_more_info": needs_more_info,
-                "missing_info": list(set(missing_info))  # Deduplicate
+                "missing_info": missing_info
             }
             
         except Exception as e:
@@ -125,5 +124,5 @@ MISSING: none
             return {
                 "symptoms": [{"name": message[:100], "duration": None, "severity": None, "location": None}],
                 "needs_more_info": True,
-                "missing_info": ["duration", "severity", "location"]
+                "missing_info": ["duration", "severity"]
             }

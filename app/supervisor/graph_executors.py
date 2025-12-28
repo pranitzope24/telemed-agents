@@ -115,6 +115,52 @@ class SymptomsGraphExecutor(GraphExecutor):
         
         return result
     
+    async def _handle_result(self, result: Dict[str, Any], state: SessionState, 
+                            intent_result: Dict = None, risk_result: Dict = None) -> Dict[str, Any]:
+        """Handle graph result - check for handoff or completion.
+        
+        This method is called from both execute() and after processing resume results.
+        """
+        # Check if we need to handoff to doctor_matching_graph
+        next_action = result.get("next_action")
+        if next_action == "handoff_doctor":
+            logger.info("[SymptomsGraphExecutor] Handoff to doctor_matching_graph requested")
+            
+            # Prepare handoff data
+            state.handoff_data = {
+                "source": "symptoms_graph",
+                "symptoms_summary": self._build_symptoms_summary(result),
+                "structured_symptoms": result.get("structured_symptoms", []),
+                "suggested_specialties": self._extract_specialties(result),
+                "urgency_level": self._determine_urgency(result)
+            }
+            
+            # Update session state
+            state.suggested_specialties = state.handoff_data["suggested_specialties"]
+            state.reported_symptoms = [
+                symp.get("name", "") for symp in result.get("structured_symptoms", [])
+            ]
+            
+            # Complete current graph
+            state.complete_graph()
+            
+            # Start doctor matching graph
+            state.start_graph("doctor_matching_graph")
+            
+            # Execute doctor matching graph
+            from app.supervisor.graph_executors import get_graph_executor
+            doctor_executor = get_graph_executor("doctor_matching_graph")
+            
+            return await doctor_executor.execute(
+                message="", 
+                state=state, 
+                intent_result=intent_result, 
+                risk_result=risk_result
+            )
+        
+        # No handoff, just complete normally
+        return self.handle_completion(result, state, intent_result, risk_result)
+    
     async def execute(self, message: str, state: SessionState, intent_result: Dict, risk_result: Dict) -> Dict[str, Any]:
         """Execute symptoms graph."""
         from app.graphs.symptoms_graph.graph import symptoms_graph
@@ -142,44 +188,8 @@ class SymptomsGraphExecutor(GraphExecutor):
         if "__interrupt__" in result:
             return self.handle_interrupt(result, state, intent_result, risk_result)
         else:
-            # Check if we need to handoff to doctor_matching_graph
-            next_action = result.get("next_action")
-            if next_action == "handoff_doctor":
-                logger.info("[SymptomsGraphExecutor] Handoff to doctor_matching_graph requested")
-                
-                # Prepare handoff data
-                state.handoff_data = {
-                    "source": "symptoms_graph",
-                    "symptoms_summary": self._build_symptoms_summary(result),
-                    "structured_symptoms": result.get("structured_symptoms", []),
-                    "suggested_specialties": self._extract_specialties(result),
-                    "urgency_level": self._determine_urgency(result)
-                }
-                
-                # Update session state
-                state.suggested_specialties = state.handoff_data["suggested_specialties"]
-                state.reported_symptoms = [
-                    symp.get("name", "") for symp in result.get("structured_symptoms", [])
-                ]
-                
-                # Complete current graph
-                state.complete_graph()
-                
-                # Start doctor matching graph
-                state.start_graph("doctor_matching_graph")
-                
-                # Execute doctor matching graph
-                from app.supervisor.graph_executors import get_graph_executor
-                doctor_executor = get_graph_executor("doctor_matching_graph")
-                
-                return await doctor_executor.execute(
-                    message="", 
-                    state=state, 
-                    intent_result=intent_result, 
-                    risk_result=risk_result
-                )
-            
-            return self.handle_completion(result, state, intent_result, risk_result)
+            # Use _handle_result to check for handoff or complete
+            return await self._handle_result(result, state, intent_result, risk_result)
     
     def _build_symptoms_summary(self, result: Dict[str, Any]) -> str:
         """Build a summary of symptoms for handoff."""
