@@ -102,7 +102,7 @@ MOCK_GRAPH_RESPONSES: Dict[str, str] = {
         "⚠️ MEDICAL EMERGENCY DETECTED ⚠️\n\n"
         "This appears to be a medical emergency. "
         "Please take immediate action:\n\n"
-        "1. Call emergency services (911) immediately\n"
+        "1. Call emergency services (112) or ambulance (108) immediately\n"
         "2. If safe, go to the nearest emergency room\n"
         "3. Do not wait for an appointment\n\n"
         "If you're experiencing:\n"
@@ -111,6 +111,6 @@ MOCK_GRAPH_RESPONSES: Dict[str, str] = {
         "• Severe bleeding\n"
         "• Loss of consciousness\n"
         "• Stroke symptoms\n\n"
-        "SEEK IMMEDIATE MEDICAL ATTENTION. This chatbot cannot provide emergency care."
+        "SEEK IMMEDIATE MEDICAL ATTENTION. This assistant cannot provide emergency care."
     )
 }
