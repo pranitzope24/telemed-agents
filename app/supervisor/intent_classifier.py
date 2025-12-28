@@ -1,11 +1,15 @@
 """Intent classification for routing."""
 
-from typing import Dict, List, Any
-from app.supervisor.constants import INTENTS
+import json
+from typing import Any, Dict, List
+
 from app.config.llm import LLMConfig
 from app.constants.openai_constants import OpenaiModels
 from app.state.graph_state import Message
-import json
+from app.supervisor.constants import INTENTS
+from app.utils.logger import get_logger
+
+logger = get_logger()
 
 
 INTENT_PROMPT = """You are an AI assistant that classifies user intent for a medical telemedicine chatbot.
@@ -64,7 +68,7 @@ async def classify_intent(message: str, context_messages: List[Message] = None) 
     Returns:
         Dictionary with intent, confidence, and reasoning
     """
-    print(f"\n🎯 Intent Classifier: Analyzing message...")
+    logger.info("🎯 Intent Classifier: Analyzing message...")
     
     try:
         llm_config = LLMConfig(model_name=OpenaiModels.GPT_4O_MINI.value, temperature=0.3)
@@ -78,7 +82,7 @@ async def classify_intent(message: str, context_messages: List[Message] = None) 
             message=message
         )
         
-        print("🤖 Using LLM for intent classification...")
+        logger.info("🤖 Using LLM for intent classification...")
         response = await llm.ainvoke(prompt)
         
         # Parse LLM response
@@ -95,12 +99,12 @@ async def classify_intent(message: str, context_messages: List[Message] = None) 
         # Validate intent
         intent = result.get("intent", "general")
         if intent not in INTENTS:
-            print(f"⚠️  Invalid intent '{intent}', defaulting to 'general'")
+            logger.warning(f"Invalid intent '{intent}', defaulting to 'general'")
             intent = "general"
         
         confidence = result.get("confidence", 0.7)
         
-        print(f"✅ Intent classified as: {intent} (confidence: {confidence:.2f})")
+        logger.info(f"✅ Intent classified as: {intent} (confidence: {confidence:.2f})")
         
         return {
             "intent": intent,
@@ -110,8 +114,8 @@ async def classify_intent(message: str, context_messages: List[Message] = None) 
         }
     
     except Exception as e:
-        print(f"❌ Error in intent classification: {e}")
-        print("⚠️  Falling back to 'general' intent")
+        logger.error(f"Error in intent classification: {e}")
+        logger.warning("Falling back to 'general' intent")
         # Fallback to general on error
         return {
             "intent": "general",
