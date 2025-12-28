@@ -29,7 +29,7 @@ class DoctorMatchingGraphExecutor(GraphExecutor):
     async def execute(self, message: str, state: SessionState, intent_result: Dict, risk_result: Dict) -> Dict[str, Any]:
         """Execute simplified doctor matching graph."""
         from app.graphs.doctor_matching_graph.graph import doctor_matching_graph
-        
+
         # Check for handoff data from previous graph (may be empty if called directly)
         handoff_data = state.handoff_data if state.handoff_data else {}
         
@@ -102,6 +102,8 @@ class DoctorMatchingGraphExecutor(GraphExecutor):
         return {
             "next_action": result.get("next_action"),
             "appointment_id": result.get("appointment_id"),
+            "available_doctors": result.get("available_doctors", []),
+            "booking_context": result.get("booking_context", {}),
             "selected_doctor": result.get("selected_doctor", {}).get("name"),
             "appointment_date": result.get("preferred_date"),
             "appointment_time": result.get("selected_time_slot")
