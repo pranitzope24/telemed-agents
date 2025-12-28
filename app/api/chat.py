@@ -1,13 +1,18 @@
 """Chat API endpoint with supervisor integration."""
 
+import uuid
+from datetime import datetime
+from typing import Any, Dict, Optional
+
 from fastapi import APIRouter
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
-from datetime import datetime
+
+from app.memory.session_memory import load_session_state, save_session_state
 from app.state.graph_state import SessionState
-from app.memory.session_memory import save_session_state, load_session_state
 from app.supervisor.supervisor_graph import run_supervisor
-import uuid
+from app.utils.logger import get_logger
+
+logger = get_logger()
 
 router = APIRouter()
 
@@ -39,18 +44,18 @@ async def chat(request: ChatRequest) -> ChatResponse:
     if request.session_id:
         state = load_session_state(request.session_id)
         if state:
-            print(f"\n📂 Loaded existing session: {request.session_id}")
+            logger.info(f"📂 Loaded existing session: {request.session_id}")
         else:
-            print(f"\n⚠️  Session {request.session_id} not found, creating new one")
+            logger.warning(f"Session {request.session_id} not found, creating new one")
             state = SessionState(session_id=request.session_id)
     else:
         session_id = f"session_{uuid.uuid4().hex[:16]}"
         state = SessionState(session_id=session_id)
-        print(f"\n✨ Created new session: {session_id}")
+        logger.info(f"✨ Created new session: {session_id}")
     
     # ===== 2. Add user message =====
     state.add_message("user", request.message)
-    print(f"💬 User message added: {request.message[:50]}...")
+    logger.info(f"💬 User message added: {request.message[:50]}...")
     
     # ===== 3. Run supervisor for classification and routing =====
     try:
@@ -64,9 +69,9 @@ async def chat(request: ChatRequest) -> ChatResponse:
         # ===== 5. Save state to memory =====
         save_success = save_session_state(state)
         if save_success:
-            print(f"\n💾 Saved session state: {state.session_id}")
+            logger.info(f"💾 Saved session state: {state.session_id}")
         else:
-            print(f"\n⚠️  Failed to save session state: {state.session_id}")
+            logger.warning(f"Failed to save session state: {state.session_id}")
         
         # ===== 6. Prepare emergency warning if needed =====
         warning_message = None
@@ -76,7 +81,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
                 "Please call emergency services (911) or go to the nearest emergency room immediately. "
                 "Do not rely on this chatbot for emergency medical care."
             )
-            print(f"\n🚨 Emergency warning issued for session {state.session_id}")
+            logger.warning(f"🚨 Emergency warning issued for session {state.session_id}")
         
         # ===== 7. Return response with metadata =====
         return ChatResponse(
@@ -92,7 +97,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
         )
     
     except Exception as e:
-        print(f"\n❌ Error in supervisor: {e}")
+        logger.error(f"Error in supervisor: {e}")
         # Fallback response
         response_text = (
             "I apologize, but I'm having trouble processing your request. "

@@ -42,8 +42,6 @@ class SessionState(BaseState):
         "symptoms_graph",
         "dosha_graph",
         "doctor_matching_graph",
-        "prescription_graph",
-        "progress_graph",
         "emergency_graph"
     ]] = None
     active_node: Optional[str] = None
@@ -59,6 +57,12 @@ class SessionState(BaseState):
     reported_symptoms: List[str] = Field(default_factory=list)
     triage_outcome: Optional[Literal["needs_doctor", "self_care", "emergency"]] = None
     suggested_specialties: List[str] = Field(default_factory=list)
+    
+    # ===== Doctor Booking Context =====
+    user_location_city: Optional[str] = None
+    user_location_state: Optional[str] = None
+    user_insurance: Optional[str] = None
+    booked_appointments: List[Dict[str, Any]] = Field(default_factory=list)
     
     # ===== Flow Control =====
     status: Literal["active", "waiting", "completed", "terminated"] = "active"

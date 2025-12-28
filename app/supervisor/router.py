@@ -1,6 +1,9 @@
 """Router for graph selection."""
 
 from app.supervisor.constants import INTENT_TO_GRAPH
+from app.utils.logger import get_logger
+
+logger = get_logger()
 
 
 def route_to_graph(intent: str, risk_level: str) -> str:
@@ -13,16 +16,16 @@ def route_to_graph(intent: str, risk_level: str) -> str:
     Returns:
         Graph name to execute
     """
-    print(f"\n🗺️  Router: Mapping intent='{intent}' + risk='{risk_level}' to graph...")
+    logger.info(f"🗺️  Router: Mapping intent='{intent}' + risk='{risk_level}' to graph...")
     
     # Emergency always takes priority
     if risk_level == "emergency":
-        print("⚠️  Emergency override: routing to emergency_graph")
+        logger.warning("Emergency override: routing to emergency_graph")
         return "emergency_graph"
     
     # Map intent to graph
     graph_name = INTENT_TO_GRAPH.get(intent, "symptoms_graph")
     
-    print(f"✅ Routed to: {graph_name}")
+    logger.info(f"✅ Routed to: {graph_name}")
     
     return graph_name

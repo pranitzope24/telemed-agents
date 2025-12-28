@@ -46,7 +46,22 @@ class ColorFormatter(logging.Formatter):
         return super().format(record)
 
 
-def get_logger():
+def get_logger(name: str = None):
+    """Get a logger instance for the calling module.
+    
+    Args:
+        name: Optional logger name. If not provided, uses the caller's module name.
+    
+    Returns:
+        Logger instance
+    """
+    # If no name provided, get the caller's module name
+    if name is None:
+        import inspect
+        frame = inspect.currentframe()
+        caller_frame = frame.f_back
+        name = caller_frame.f_globals.get('__name__', 'unknown')
+    
     logging.captureWarnings(True)
 
     fmt = "%(asctime)s | %(levelname)-9s | %(name)-50s | %(message)s"
@@ -55,12 +70,12 @@ def get_logger():
     stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setFormatter(color_formatter)
 
+    # Only configure root logger once
+    if not logging.getLogger().handlers:
+        logging.basicConfig(
+            level=logging.INFO,
+            handlers=[stream_handler],
+        )
 
-    logging.basicConfig(
-        level=logging.INFO,
-        handlers=[stream_handler],
-    )
-
-    logger = logging.getLogger(__name__)
-    logger.info("Logger initialized")
+    logger = logging.getLogger(name)
     return logger

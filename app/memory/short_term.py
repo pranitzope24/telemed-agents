@@ -1,7 +1,11 @@
 """Simple Redis wrapper for short-term memory."""
 
 import json
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
+
+from app.utils.logger import get_logger
+
+logger = get_logger()
 
 
 class RedisMemory:
@@ -25,9 +29,9 @@ class RedisMemory:
             # Test connection
             self.redis_client.ping()
             self.use_redis = True
-            print("✅ Redis connected successfully")
+            logger.info("✅ Redis connected successfully")
         except Exception as e:
-            print(f"⚠️  Redis not available, using in-memory storage: {e}")
+            logger.warning(f"Redis not available, using in-memory storage: {e}")
             self.use_redis = False
     
     def set(self, key: str, value: str, ttl: int = 3600) -> bool:
@@ -40,7 +44,7 @@ class RedisMemory:
                 self.memory_store[key] = value
             return True
         except Exception as e:
-            print(f"Error setting key {key}: {e}")
+            logger.error(f"Error setting key {key}: {e}")
             return False
     
     def get(self, key: str) -> Optional[str]:
@@ -51,7 +55,7 @@ class RedisMemory:
             else:
                 return self.memory_store.get(key)
         except Exception as e:
-            print(f"Error getting key {key}: {e}")
+            logger.error(f"Error getting key {key}: {e}")
             return None
     
     def delete(self, key: str) -> bool:
@@ -63,7 +67,7 @@ class RedisMemory:
                 self.memory_store.pop(key, None)
             return True
         except Exception as e:
-            print(f"Error deleting key {key}: {e}")
+            logger.error(f"Error deleting key {key}: {e}")
             return False
     
     def exists(self, key: str) -> bool:
@@ -74,7 +78,7 @@ class RedisMemory:
             else:
                 return key in self.memory_store
         except Exception as e:
-            print(f"Error checking key {key}: {e}")
+            logger.error(f"Error checking key {key}: {e}")
             return False
     
     def ping(self) -> bool:
