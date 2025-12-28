@@ -42,8 +42,6 @@ class SessionState(BaseState):
         "symptoms_graph",
         "dosha_graph",
         "doctor_matching_graph",
-        "prescription_graph",
-        "progress_graph",
         "emergency_graph"
     ]] = None
     active_node: Optional[str] = None

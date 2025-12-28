@@ -7,8 +7,7 @@ from app.graphs.dosha_graph.nodes import (
     questionnaire_node,
     followup_node,
     dosha_inference_node,
-    response_generator_node,
-    safety_compliance_node
+    response_generator_node
 )
 from app.utils.logger import get_logger
 
@@ -51,7 +50,6 @@ def build_dosha_graph():
     workflow.add_node("followup", followup_node)
     workflow.add_node("dosha_inference", dosha_inference_node)
     workflow.add_node("response_generator", response_generator_node)
-    workflow.add_node("safety_compliance", safety_compliance_node)
     
     # Define flow
     workflow.add_edge(START, "questionnaire")
@@ -72,8 +70,7 @@ def build_dosha_graph():
     
     # Linear flow after inference
     workflow.add_edge("dosha_inference", "response_generator")
-    workflow.add_edge("response_generator", "safety_compliance")
-    workflow.add_edge("safety_compliance", END)
+    workflow.add_edge("response_generator", END)
     
     # Compile with checkpointer for interrupt() support
     # Using MemorySaver for development (can switch to Redis checkpointer later)

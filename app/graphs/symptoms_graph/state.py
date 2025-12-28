@@ -31,7 +31,7 @@ class SymptomsGraphState(TypedDict):
     # ===== Follow-up Tracking =====
     # Annotated with 'add' means append, not replace
     questions_asked: Annotated[List[str], add]
-    answers_collected: Dict[str, str]
+    answers_collected: List[str]  # Just the answers, questions tracked separately
     needs_more_info: bool
     missing_info: List[str]
     

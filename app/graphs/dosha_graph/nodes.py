@@ -178,7 +178,8 @@ async def response_generator_node(state: DoshaGraphState) -> Dict[str, Any]:
         logger.info(f"[response_generator_node] Generated response ({len(generated_response)} chars)")
         
         return {
-            "final_response": generated_response
+            "final_response": generated_response,
+            "next_action": "complete"
         }
         
     except Exception as e:
@@ -193,54 +194,7 @@ Dosha Distribution:
 
 {state.get('dosha_explanation', '')}
 
-Please consult with an Ayurvedic practitioner for personalized guidance."""
-        }
-
-
-async def safety_compliance_node(state: DoshaGraphState) -> Dict[str, Any]:
-    """Final safety check and add compliance disclaimers."""
-    logger.info("[safety_compliance_node] Running safety checks...")
-    
-    checker = SafetyComplianceChecker()
-    
-    # Validate dosha data
-    dosha_data = {
-        "vata_score": state.get("vata_score"),
-        "pitta_score": state.get("pitta_score"),
-        "kapha_score": state.get("kapha_score"),
-        "dominant_dosha": state.get("dominant_dosha")
-    }
-    
-    is_valid = checker.validate_dosha_response(dosha_data)
-    
-    if not is_valid:
-        logger.error("[safety_compliance_node] Invalid dosha data detected")
-        return {
-            "final_response": "I apologize, but I encountered an issue with the assessment. Please try again or consult with an Ayurvedic practitioner directly.",
-            "safety_flags": ["invalid_dosha_data"],
+Please consult with an Ayurvedic practitioner for personalized guidance.""",
             "next_action": "complete"
         }
-    
-    # Check response safety
-    context = {
-        "answers": state.get("answers_collected", {}),
-        "dosha": state.get("dominant_dosha")
-    }
-    
-    safety_result = checker.check_response(
-        response=state.get("final_response", ""),
-        context=context
-    )
-    
-    logger.info(
-        f"[safety_compliance_node] Safety check complete. "
-        f"Flags: {len(safety_result['safety_flags'])}, "
-        f"Escalation: {safety_result['needs_escalation']}"
-    )
-    
-    return {
-        "final_response": safety_result["final_response"],
-        "safety_flags": safety_result["safety_flags"],
-        "next_action": "handoff" if safety_result["needs_escalation"] else "complete"
-    }
 

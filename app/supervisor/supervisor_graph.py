@@ -6,7 +6,6 @@ from app.supervisor.intent_classifier import classify_intent
 from app.supervisor.risk_classifier import classify_risk
 from app.supervisor.router import route_to_graph
 from app.supervisor.graph_executors import get_graph_executor, GRAPH_EXECUTORS
-from app.supervisor.constants import MOCK_GRAPH_RESPONSES
 from app.utils.logger import get_logger
 
 logger = get_logger()
@@ -85,13 +84,9 @@ async def handle_new_request(message: str, state: SessionState) -> Dict[str, Any
     # Step 5: Execute the graph
     logger.info(f"📍 Step 5: Executing {target_graph}")
     
-    # Check if graph has an executor (implemented)
-    if target_graph in GRAPH_EXECUTORS:
-        executor = get_graph_executor(target_graph)
-        return await executor.execute(message, state, intent_result, risk_result)
-    else:
-        # Return mock response for unimplemented graphs
-        return _build_mock_response(target_graph, intent_result, risk_result)
+    # All intents route to implemented graphs
+    executor = get_graph_executor(target_graph)
+    return await executor.execute(message, state, intent_result, risk_result)
 
 
 def _update_session_state(state: SessionState, intent_result: Dict, risk_result: Dict, target_graph: str):
@@ -120,44 +115,6 @@ def _update_session_state(state: SessionState, intent_result: Dict, risk_result:
         f"✅ State updated: intent={state.current_intent}, "
         f"risk={state.risk_level}, graph={state.active_graph}"
     )
-
-
-def _build_mock_response(target_graph: str, intent_result: Dict, risk_result: Dict) -> Dict[str, Any]:
-    """Build mock response for unimplemented graphs.
-    
-    Args:
-        target_graph: Target graph name
-        intent_result: Intent classification result
-        risk_result: Risk assessment result
-        
-    Returns:
-        Response dict with mock response
-    """
-    mock_response = MOCK_GRAPH_RESPONSES.get(
-        target_graph, 
-        "I'm here to help. How can I assist you?"
-    )
-    
-    logger.info("✨ Using mock response (graph not yet implemented)")
-    
-    return {
-        "action": "new",
-        "graph": target_graph,
-        "intent": intent_result["intent"],
-        "risk": risk_result["risk_level"],
-        "response": mock_response,
-        "metadata": {
-            "intent_confidence": intent_result["confidence"],
-            "intent_reasoning": intent_result.get("reasoning"),
-            "risk_reasoning": risk_result.get("reasoning"),
-            "urgency_score": risk_result.get("urgency_score"),
-            "emergency_keywords": risk_result.get("emergency_keywords", []),
-            "classification_method": {
-                "intent": intent_result.get("method"),
-                "risk": risk_result.get("method")
-            }
-        }
-    }
 
 
 async def run_supervisor(message: str, state: SessionState) -> Dict[str, Any]:

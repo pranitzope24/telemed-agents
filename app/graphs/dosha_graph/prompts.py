@@ -1,17 +1,5 @@
 """Prompts for dosha graph."""
 
-INITIAL_QUESTIONNAIRE_PROMPT = """Hello! I'd like to help you understand your Ayurvedic constitution (dosha).
-
-To provide an accurate assessment, I'll need to learn about various aspects of your physical and mental characteristics. This will take just a few minutes.
-
-Let's start with some basic questions:
-1. How would you describe your body frame? (thin/light, medium/muscular, or heavy/solid)
-2. How is your appetite and digestion generally?
-3. How would you describe your sleep patterns?
-
-Please share as much detail as you're comfortable with."""
-
-
 FOLLOWUP_QUESTION_GENERATOR_PROMPT = """You are an empathetic Ayurvedic practitioner conducting a dosha assessment. Generate ONE clear follow-up question.
 
 Missing areas: {missing_areas}
