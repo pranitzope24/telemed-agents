@@ -33,9 +33,12 @@ class DoctorMatchingGraphExecutor(GraphExecutor):
         # Check for handoff data from previous graph (may be empty if called directly)
         handoff_data = state.handoff_data if state.handoff_data else {}
         
+        logger.info(f"[DoctorMatchingExecutor] Preparing to execute with handoff data: {state}")
+        logger.info(f"[DoctorMatchingExecutor] Handoff data content: {message}")
         # Build session context for symptoms triage - ALWAYS pass this
         # This allows the graph to check conversation history even without handoff
         recent_messages = state.get_recent_messages(n=15)  # Increased to 15 for better context
+        logger.info(f"[DoctorMatchingExecutor] Retrieved {recent_messages} recent messages for context")
         session_context = {
             "reported_symptoms": state.reported_symptoms,
             "recent_messages": [
@@ -48,24 +51,19 @@ class DoctorMatchingGraphExecutor(GraphExecutor):
         
         logger.info(f"[DoctorMatchingExecutor] Handoff data: {bool(handoff_data)}, Reported symptoms: {state.reported_symptoms}, Recent messages: {len(recent_messages)}")
         
-        # Simplified input state matching the new TypedDict
+        # Input state for doctor matching (expects handoff from symptoms graph)
         input_state = {
-            "user_message": message,
-            
-            # Input from handoff (may be empty if direct call)
-            "symptoms_summary": handoff_data.get("symptoms_summary", ""),
-            "structured_symptoms": handoff_data.get("structured_symptoms", []),
-            "severity_level": handoff_data.get("urgency_level", ""),
-            "handoff_source": handoff_data.get("source", ""),
-            
-            # Session context from global state - CRITICAL for conversation memory
+            # Session context from global state
             "session_context": session_context,
             
-            # Will be collected during flow
-            "confirmed_specialties": [],
-            "user_location_city": "",
+            # Input from symptoms graph handoff
+            "structured_symptoms": handoff_data.get("structured_symptoms", []),
+            "symptoms_summary": handoff_data.get("symptoms_summary", ""),
             
             # Will be populated by graph
+            "recommended_specialties": [],
+            "specialty_explanation": "",
+            "doctor_search_results": [],
             "available_doctors": [],
             "final_response": "",
             "next_action": "complete",

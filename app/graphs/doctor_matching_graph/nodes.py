@@ -1,15 +1,15 @@
-"""Doctor matching graph nodes - Simplified 3-node implementation."""
+"""Doctor matching graph nodes - Simplified 2-node flow."""
 
 import json
-import re
-from typing import Dict, Any
-from langgraph.types import Command, interrupt
+from typing import Dict, Any, List
+from pydantic import BaseModel, Field
+from langchain_core.tools import tool
 from app.graphs.doctor_matching_graph.state import DoctorMatchingState
 from app.graphs.doctor_matching_graph.prompts import (
     SPECIALTY_MAPPING_PROMPT,
-    DOCTOR_PRESENTATION_PROMPT
+    DOCTOR_SEARCH_PROMPT
 )
-from app.tools.doctor_service import search_doctors
+from app.tools.doctor_service import search_doctors as search_doctors_api
 from app.config.llm import LLMConfig
 from app.constants.openai_constants import OpenaiModels
 from app.utils.logger import get_logger
@@ -17,302 +17,207 @@ from app.utils.logger import get_logger
 logger = get_logger()
 
 
-async def symptoms_triage_node(state: DoctorMatchingState) -> Command:
-    """Check if we have enough symptom context from handoff, global state, or conversation history.
-    
-    Priority:
-    1. Handoff data (symptoms_summary, structured_symptoms)
-    2. Conversation history (check recent messages for symptom mentions)
-    3. Ask user if no symptoms found
-    """
-    logger.info("[symptoms_triage_node] Checking symptom context...")
-    
-    # 1. Check local state from handoff
-    symptoms = state.get("symptoms_summary")
-    structured_symptoms = state.get("structured_symptoms")
-    
-    if symptoms or structured_symptoms:
-        logger.info(f"[symptoms_triage_node] Have symptoms from {state.get('handoff_source', 'unknown')}")
-        return Command(goto="specialty_recommendation")
-    
-    # 2. Check conversation history from state (passed via session_context)
-    session_context = state.get("session_context", {})
-    reported_symptoms_list = session_context.get("reported_symptoms", [])
-    recent_messages = session_context.get("recent_messages", [])
-    
-    # If we have reported symptoms from previous graphs
-    if reported_symptoms_list:
-        symptoms_summary = ", ".join(reported_symptoms_list)
-        logger.info(f"[symptoms_triage_node] Found symptoms in session history: {symptoms_summary}")
-        return Command(
-            goto="specialty_recommendation",
-            update={
-                "symptoms_summary": symptoms_summary,
-                "handoff_source": "session_history"
-            }
-        )
-    
-    # If we have recent conversation mentioning symptoms
-    if recent_messages:
-        # Extract symptom mentions from all messages (both user and assistant)
-        combined_messages = []
-        for msg in recent_messages[-10:]:  # Check last 10 messages
-            content = msg.get("content", "")
-            role = msg.get("role", "")
-            combined_messages.append(f"{role}: {content}")
-        
-        combined_text = " ".join(combined_messages)
-        
-        # Extended keyword check for symptom mentions
-        symptom_keywords = [
-            "pain", "fever", "headache", "cough", "cold", "sick", "hurt", "ache", 
-            "problem", "issue", "symptom", "feel", "temperature", "throat", "stomach",
-            "nausea", "dizzy", "tired", "fatigue", "rash", "itch", "sore", "burning",
-            "swelling", "bleeding", "vomit", "diarrhea", "constipation", "anxiety",
-            "stress", "sleep", "appetite", "weight", "breathing", "chest", "back",
-            "joint", "muscle", "weakness", "numbness"
-        ]
-        
-        if any(keyword in combined_text.lower() for keyword in symptom_keywords):
-            # Extract user's actual symptom description (prefer user messages)
-            user_symptom_messages = []
-            for msg in recent_messages:
-                if msg.get("role") == "user":
-                    content = msg.get("content", "").lower()
-                    if any(kw in content for kw in symptom_keywords):
-                        user_symptom_messages.append(msg.get("content", ""))
-            
-            if user_symptom_messages:
-                symptoms_text = ". ".join(user_symptom_messages[-3:])  # Last 3 symptom mentions
-                logger.info(f"[symptoms_triage_node] Found symptoms in conversation: {symptoms_text[:100]}...")
-                return Command(
-                    goto="specialty_recommendation",
-                    update={
-                        "symptoms_summary": symptoms_text[:800],  # Increased limit for better context
-                        "handoff_source": "conversation_history"
-                    }
-                )
-    
-    # 3. No symptoms found anywhere, ask user
-    logger.info("[symptoms_triage_node] No symptoms found in history, asking user")
-    
-    user_answer = interrupt({
-        "type": "symptoms_question",
-        "question": "What symptoms or health concerns are you experiencing? Please describe your condition so I can recommend the right specialist."
-    })
-    
-    return Command(
-        goto="specialty_recommendation",
-        update={
-            "symptoms_summary": str(user_answer),
-            "user_message": str(user_answer),
-            "handoff_source": "direct"
-        }
-    )
+# ===== Tool Definition =====
 
-
-async def specialty_recommendation_node(state: DoctorMatchingState) -> Command:
-    """Map symptoms to Ayurvedic specialties and collect location.
+@tool
+async def search_doctors_tool(
+    specialties: List[str],
+    city: str,
+    min_rating: float = 4.0
+) -> Dict[str, Any]:
+    """Search for Ayurvedic doctors by specialty and location.
     
-    Steps:
-    1. Use LLM to map symptoms → specialties
-    2. Present recommendation with explanation
-    3. Ask for city (in same question)
-    4. Parse city from response
+    Args:
+        specialties: List of Ayurvedic specialties to search for (e.g., ["Panchakarma", "General Ayurveda"])
+        city: City name to search in (e.g., "Delhi", "Mumbai")
+        min_rating: Minimum doctor rating filter (default: 4.0)
+    
+    Returns:
+        Dictionary with doctors list and count
     """
-    logger.info("[specialty_recommendation_node] Mapping symptoms to specialties...")
-    
-    # Get LLM
-    llm_config = LLMConfig(model_name=OpenaiModels.GPT_4O_MINI.value, temperature=0.3)
-    llm = llm_config.get_llm_instance()
-    
-    # Build symptoms context
-    symptoms = state.get("symptoms_summary", "")
-    structured_symptoms = state.get("structured_symptoms", [])
-    
-    additional_context = ""
-    if structured_symptoms:
-        additional_context = "Detailed symptoms:\n"
-        for symp in structured_symptoms:
-            name = symp.get('name', 'Unknown')
-            severity = symp.get('severity', '')
-            duration = symp.get('duration', '')
-            additional_context += f"- {name}"
-            if severity:
-                additional_context += f" (Severity: {severity})"
-            if duration:
-                additional_context += f" (Duration: {duration})"
-            additional_context += "\n"
-    
-    # Map to specialties using LLM
-    prompt = SPECIALTY_MAPPING_PROMPT.format(
-        symptoms_summary=symptoms,
-        additional_context=additional_context or "(None)"
-    )
+    logger.info(f"[search_doctors_tool] Searching for {specialties} in {city}")
     
     try:
-        response = await llm.ainvoke(prompt)
-        content = response.content.strip()
-        
-        # Parse JSON
-        if "```json" in content:
-            content = content.split("```json")[1].split("```")[0].strip()
-        elif "```" in content:
-            content = content.split("```")[1].split("```")[0].strip()
-        
-        result = json.loads(content)
-        specialties = result.get("specialties", ["General Ayurveda"])
-        explanation = result.get("explanation", "Based on your symptoms, I recommend consulting an Ayurvedic specialist.")
-        
-        logger.info(f"[specialty_recommendation_node] Mapped to: {specialties}")
-        
-    except Exception as e:
-        logger.error(f"[specialty_recommendation_node] Error mapping specialties: {e}")
-        specialties = ["General Ayurveda"]
-        explanation = "I recommend consulting a General Ayurveda specialist for your condition."
-    
-    # Present recommendation and ask for location
-    specialties_text = " or ".join(specialties)
-    question = f"""Based on your symptoms, I recommend consulting:
-
-🩺 **{specialties_text}**
-
-{explanation}
-
-To find available doctors, please tell me which city you're in (e.g., Delhi, Mumbai, Bangalore)."""
-    
-    user_answer = interrupt({
-        "type": "specialty_and_location",
-        "question": question,
-        "suggested_specialties": specialties
-    })
-    
-    # Extract city from answer
-    city = _extract_city(str(user_answer))
-    
-    if not city:
-        # Couldn't parse city, ask again more directly
-        logger.warning(f"[specialty_recommendation_node] Could not parse city from: {user_answer}")
-        
-        follow_up = interrupt({
-            "type": "city_clarification",
-            "question": "I couldn't identify the city. Please provide just the city name (e.g., Delhi, Mumbai, Pune)."
-        })
-        
-        city = _extract_city(str(follow_up))
-        
-        if not city:
-            # Still can't parse, use default or ask one more time
-            logger.error(f"[specialty_recommendation_node] Still can't parse city from: {follow_up}")
-            city = "Delhi"  # Default fallback
-    
-    logger.info(f"[specialty_recommendation_node] Extracted city: {city}")
-    
-    return Command(
-        goto="doctor_search",
-        update={
-            "confirmed_specialties": specialties,
-            "user_location_city": city
-        }
-    )
-
-
-def _extract_city(text: str) -> str:
-    """Extract city name from user input.
-    
-    Simple pattern matching for common Indian cities.
-    """
-    text_lower = text.lower()
-    
-    # Common Indian cities
-    cities = [
-        "delhi", "mumbai", "bangalore", "bengaluru", "hyderabad", "chennai",
-        "kolkata", "pune", "ahmedabad", "jaipur", "surat", "lucknow",
-        "kanpur", "nagpur", "indore", "thane", "bhopal", "visakhapatnam",
-        "pimpri", "patna", "vadodara", "ghaziabad", "ludhiana", "agra",
-        "nashik", "faridabad", "meerut", "rajkot", "varanasi", "srinagar",
-        "aurangabad", "dhanbad", "amritsar", "navi mumbai", "allahabad",
-        "ranchi", "howrah", "coimbatore", "jabalpur", "gwalior", "vijayawada",
-        "jodhpur", "madurai", "raipur", "kota", "guwahati", "chandigarh",
-        "solapur", "hubli", "dharwad", "mysore", "bareilly", "moradabad"
-    ]
-    
-    # Check for exact match
-    for city in cities:
-        if city in text_lower:
-            return city.title()
-    
-    # Try to extract capitalized words (likely city names)
-    words = text.split()
-    for word in words:
-        if word.istitle() and len(word) > 3:
-            return word
-    
-    return ""
-
-
-async def doctor_search_node(state: DoctorMatchingState) -> Dict[str, Any]:
-    """Search for doctors and present results.
-    
-    This is the final node - returns dict to END the graph.
-    UI will handle booking flow with buttons.
-    """
-    logger.info("[doctor_search_node] Searching for doctors...")
-    
-    specialties = state.get("confirmed_specialties", [])
-    city = state.get("user_location_city", "")
-    
-    # Search doctors via API
-    try:
-        result = await search_doctors(
+        result = await search_doctors_api(
             specialties=specialties,
-            city=city
+            city=city,
+            min_rating=min_rating
         )
         
         doctors = result.get("doctors", [])
         
         if not doctors:
-            logger.warning(f"[doctor_search_node] No doctors found for {specialties} in {city}")
             return {
-                "final_response": f"I couldn't find any {', '.join(specialties)} specialists in {city} right now. Would you like to try a different city or specialty?",
-                "next_action": "complete",
-                "available_doctors": []
+                "doctors": [],
+                "count": 0,
+                "message": f"No doctors found for {', '.join(specialties)} in {city}"
             }
         
-        logger.info(f"[doctor_search_node] Found {len(doctors)} doctors")
-        
-        # Convert DoctorInfo objects to dictionaries
-        top_doctors = doctors[:3]
-        top_doctors_dicts = [doc.to_dict() for doc in top_doctors]
-        
-        # Format response using LLM
-        llm_config = LLMConfig(model_name=OpenaiModels.GPT_4O_MINI.value, temperature=0.7)
-        llm = llm_config.get_llm_instance()
-        
-        doctors_json = json.dumps(top_doctors_dicts, indent=2)
-        prompt = DOCTOR_PRESENTATION_PROMPT.format(doctors_json=doctors_json)
-        
-        response = await llm.ainvoke(prompt)
-        formatted_response = response.content.strip()
-        
-        logger.info("[doctor_search_node] Successfully formatted doctor presentation")
+        # Convert DoctorInfo objects to dicts
+        doctors_list = [doc.to_dict() for doc in doctors[:5]]  # Top 5
         
         return {
-            "final_response": formatted_response,
+            "doctors": doctors_list,
+            "count": len(doctors_list),
+            "message": f"Found {len(doctors_list)} doctors"
+        }
+        
+    except Exception as e:
+        logger.error(f"[search_doctors_tool] Error: {e}")
+        return {
+            "doctors": [],
+            "count": 0,
+            "error": str(e)
+        }
+
+
+# ===== Pydantic Models for Structured Output =====
+
+class SpecialtyMapping(BaseModel):
+    """Structured output from specialty mapping."""
+    specialties: List[str] = Field(description="Recommended Ayurvedic specialties (1-2)")
+    explanation: str = Field(description="Brief explanation for the patient")
+
+
+# ===== Node 1: Specialty Mapper =====
+
+async def specialty_mapper_node(state: DoctorMatchingState) -> Dict[str, Any]:
+    """Map symptoms to Ayurvedic specialties using handoff data.
+    
+    Receives structured symptoms from symptoms graph handoff.
+    """
+    logger.info("[specialty_mapper_node] Mapping symptoms to specialties...")
+    
+    # Get data from handoff
+    structured_symptoms = state.get("structured_symptoms", [])
+    symptoms_summary = state.get("symptoms_summary", "")
+    
+    # Build detailed symptoms string
+# ===== Node 2: Doctor Search (LLM with Tool Calling) =====
+
+async def doctor_search_node(state: DoctorMatchingState) -> Dict[str, Any]:
+    """Search for doctors using LLM with tool calling capability.
+    
+    The LLM will:
+    1. Use search_doctors_tool to find doctors
+    2. Generate a personalized response with specialty recommendation
+    3. Present the doctor list in a friendly format
+    """
+    logger.info("[doctor_search_node] Starting LLM-based doctor search...")
+    
+    specialties = state.get("recommended_specialties", [])
+    specialty_explanation = state.get("specialty_explanation", "")
+    structured_symptoms = state.get("structured_symptoms", [])
+    
+    # Get city from session context
+    session_context = state.get("session_context", {})
+    city = session_context.get("user_location_city", "")
+    
+    if not city:
+        logger.warning("[doctor_search_node] No city in session context, using default: Delhi")
+        city = "Delhi"
+    
+    # Build symptoms summary for context
+    symptoms_summary = ""
+    if structured_symptoms:
+        symptom_names = [s.get('name', '') for s in structured_symptoms if s.get('name')]
+        symptoms_summary = ", ".join(symptom_names)
+    
+    logger.info(f"[doctor_search_node] Specialties: {specialties}, City: {city}")
+    
+    # Create LLM with tool binding
+    llm_config = LLMConfig(model_name=OpenaiModels.GPT_4O.value, temperature=0.7)
+    llm = llm_config.get_llm_instance()
+    llm_with_tools = llm.bind_tools([search_doctors_tool])
+    
+    # Build prompt for LLM
+    specialties_text = ", ".join(specialties)
+    prompt = DOCTOR_SEARCH_PROMPT.format(
+        specialties=specialties_text,
+        specialty_explanation=specialty_explanation,
+        symptoms=symptoms_summary or "general consultation",
+        city=city
+    )
+    
+    logger.info(f"[doctor_search_node] Invoking LLM with tool calling...")
+    
+    try:
+        # Invoke LLM (it will call the tool if needed)
+        response = await llm_with_tools.ainvoke(prompt)
+        
+        # Check if LLM called the tool
+        doctors_list = []
+        if hasattr(response, 'tool_calls') and response.tool_calls:
+            logger.info(f"[doctor_search_node] LLM made {len(response.tool_calls)} tool call(s)")
+            
+            # Execute tool calls
+            for tool_call in response.tool_calls:
+                if tool_call['name'] == 'search_doctors_tool':
+                    tool_result = await search_doctors_tool.ainvoke(tool_call['args'])
+                    doctors_list = tool_result.get('doctors', [])
+                    logger.info(f"[doctor_search_node] Tool returned {len(doctors_list)} doctors")
+            
+            # If we have doctors, ask LLM to format the final response
+            if doctors_list:
+                doctors_json = json.dumps(doctors_list, indent=2)
+                final_prompt = f"""{prompt}
+
+The search found these doctors:
+{doctors_json}
+
+Now provide your complete response including:
+1. Specialty recommendation with explanation
+2. Brief overview of the doctors found
+3. End with: "You can view the complete list of doctors and book an appointment using the button below."
+
+Keep it conversational and helpful."""
+                
+                final_response = await llm.ainvoke(final_prompt)
+                formatted_text = final_response.content.strip()
+            else:
+                formatted_text = f"I couldn't find any {specialties_text} specialists in {city} right now. Would you like to try a different city or specialty?"
+        else:
+            # LLM responded without calling tool (fallback)
+            logger.warning("[doctor_search_node] LLM did not call tool, using direct response")
+            formatted_text = response.content.strip()
+            
+            # Try to search anyway as fallback
+            try:
+                tool_result = await search_doctors_tool.ainvoke({
+                    "specialties": specialties,
+                    "city": city,
+                    "min_rating": 4.0
+                })
+                doctors_list = tool_result.get('doctors', [])
+            except Exception as e:
+                logger.error(f"[doctor_search_node] Fallback search failed: {e}")
+        
+        logger.info(f"[doctor_search_node] Final response generated with {len(doctors_list)} doctors")
+        
+        return {
+            "final_response": formatted_text,
             "next_action": "complete",
-            "available_doctors": top_doctors_dicts,
+            "available_doctors": doctors_list,
+            "doctor_search_results": doctors_list,
             "booking_context": {
-                "symptoms": state.get("symptoms_summary"),
-                "structured_symptoms": state.get("structured_symptoms"),
+                "symptoms": structured_symptoms,
                 "specialties": specialties,
                 "city": city
             }
         }
         
     except Exception as e:
-        logger.error(f"[doctor_search_node] Error: {e}")
+        logger.error(f"[doctor_search_node] Error in LLM tool calling: {e}")
+        
+        # Fallback: direct response
         return {
-            "final_response": "I'm having trouble searching for doctors right now. Please try again in a moment.",
+            "final_response": f"Based on your symptoms, I recommend consulting a {', '.join(specialties)} specialist in {city}. However, I'm having trouble accessing the doctor database right now. Please try again in a moment.",
             "next_action": "complete",
-            "available_doctors": []
+            "available_doctors": [],
+            "doctor_search_results": [],
+            "booking_context": {
+                "symptoms": structured_symptoms,
+                "specialties": specialties,
+                "city": city
+            }
         }

@@ -50,7 +50,7 @@ EMERGENCY_KEYWORDS = [
 INTENT_TO_GRAPH: Dict[str, str] = {
     "symptom": "symptoms_graph",
     "dosha": "dosha_graph",
-    "doctor": "doctor_matching_graph",
+    "doctor": "symptoms_graph",  # Route to symptoms first, then handoff to doctor_matching
     "emergency": "emergency_graph",
     "general": "symptoms_graph",  # Default to symptoms
     # Unimplemented graphs route to symptoms as fallback:
