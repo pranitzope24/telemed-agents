@@ -1,11 +1,10 @@
-"""Doctor matching graph pipeline - Simplified 3-node flow."""
+"""Doctor matching graph pipeline."""
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
 from app.graphs.doctor_matching_graph.state import DoctorMatchingState
 from app.graphs.doctor_matching_graph.nodes import (
-    symptoms_triage_node,
-    specialty_recommendation_node,
+    specialty_mapper_node,
     doctor_search_node
 )
 from app.utils.logger import get_logger
@@ -14,37 +13,37 @@ logger = get_logger()
 
 
 def build_doctor_matching_graph():
-    """Build and compile the simplified doctor matching graph.
+    """Build and compile the doctor matching graph.
     
-    Flow:
-    1. symptoms_triage_node: Check/collect symptoms
-    2. specialty_recommendation_node: Map to specialties + collect location
-    3. doctor_search_node: Search and present doctors (END)
+    Simple 2-node flow for handoff cases only:
+    1. specialty_mapper_node: Map symptoms → Ayurvedic specialties (LLM)
+    2. doctor_search_node: Search doctors and present results (Tool + LLM)
+    
+    Note: This graph should ONLY be called via handoff from symptoms graph.
+    Direct intent routing should go to symptoms graph first.
     
     Returns:
-        Compiled LangGraph workflow with checkpointer for interrupts
+        Compiled LangGraph workflow with checkpointer
     """
-    logger.info("Building simplified doctor matching graph...")
+    logger.info("Building doctor matching graph...")
     
     # Create graph
     workflow = StateGraph(DoctorMatchingState)
     
-    # Add 3 nodes only
-    workflow.add_node("symptoms_triage", symptoms_triage_node)
-    workflow.add_node("specialty_recommendation", specialty_recommendation_node)
+    # Add 2 nodes
+    workflow.add_node("specialty_mapper", specialty_mapper_node)
     workflow.add_node("doctor_search", doctor_search_node)
     
     # Simple linear flow
-    workflow.add_edge(START, "symptoms_triage")
-    # symptoms_triage uses Command(goto=...) to route to specialty_recommendation
-    # specialty_recommendation uses Command(goto=...) to route to doctor_search
+    workflow.add_edge(START, "specialty_mapper")
+    workflow.add_edge("specialty_mapper", "doctor_search")
     workflow.add_edge("doctor_search", END)
     
-    # Compile with checkpointer for interrupt() support
+    # Compile with checkpointer
     checkpointer = MemorySaver()
     compiled_graph = workflow.compile(checkpointer=checkpointer)
     
-    logger.info("✅ Simplified doctor matching graph compiled (3 nodes)")
+    logger.info("✅ Doctor matching graph compiled (2 nodes: specialty_mapper → doctor_search)")
     
     return compiled_graph
 

@@ -32,12 +32,13 @@ class SymptomTriageAgent:
         # Get structured output LLM
         self.llm = llm_config.get_llm_instance().with_structured_output(SymptomAnalysisResult)
     
-    async def analyze(self, message: str, context: List[str] = None) -> Dict[str, Any]:
+    async def analyze(self, message: str, context: List[str] = None, existing_symptoms: List[Dict] = None) -> Dict[str, Any]:
         """Extract structured symptoms and identify missing information.
         
         Args:
-            message: User's symptom description
+            message: User's symptom description or follow-up answer
             context: Previous answers from follow-ups (list of strings)
+            existing_symptoms: Previously extracted symptoms to update
             
         Returns:
             Dict with:
@@ -46,49 +47,69 @@ class SymptomTriageAgent:
             - missing_info: List of missing fields
         """
         logger.info(f"Analyzing symptoms from message: {message[:100]}...")
-        
+        logger.info(f"With context: {context}")
+        logger.info(f"Existing symptoms: {existing_symptoms}")
         # Build context string
         context_str = ""
         if context:
             context_str = "\n".join([f"- {answer}" for answer in context])
         
-        prompt = f"""You are a medical symptom analyzer. Extract structured information from the patient's description.
+        # Build existing symptoms context
+        existing_symptoms_str = ""
+        if existing_symptoms:
+            existing_symptoms_str = "Previously extracted symptoms:\n"
+            for symp in existing_symptoms:
+                parts = [symp.get('name', 'Unknown')]
+                if symp.get('severity'):
+                    parts.append(f"severity: {symp['severity']}")
+                if symp.get('duration'):
+                    parts.append(f"duration: {symp['duration']}")
+                if symp.get('location'):
+                    parts.append(f"location: {symp['location']}")
+                existing_symptoms_str += f"- {', '.join(parts)}\n"
+        
+        prompt = f"""You are a medical symptom analyzer. Your job is to extract and update structured symptom information.
 
-Previous Context:
+{existing_symptoms_str if existing_symptoms_str else "No symptoms extracted yet."}
+
+Previous Follow-up Answers:
 {context_str if context_str else "(None)"}
 
 Current Message:
 {message}
 
 Your task:
-1. Extract ALL symptoms mentioned and their details
-2. Identify CRITICAL information that is still missing and needed for safe guidance
+1. If this is a follow-up answer (e.g., answering "where", "how long", "how bad"), UPDATE the existing symptom(s) with the new information
+2. If this is describing NEW symptoms, extract them
+3. Identify what CRITICAL information is still missing
 
-For each symptom, extract:
+For each symptom, extract/update:
 - name: The symptom (e.g., "fever", "headache", "cough")
-- duration: How long they've had it (e.g., "2 days", "since yesterday"). If not mentioned, use null.
+- duration: How long they've had it (e.g., "2 days", "since yesterday"). Use null if not mentioned.
 - severity: One of "mild", "moderate", or "severe".
-  Infer severity if possible using these rules:
+  Infer severity if possible:
     * "severe", "unbearable", "can't sleep", "worst ever", "getting much worse" → severe
     * "moderate", "uncomfortable", "affecting daily activities" → moderate
     * "mild", "slight", "bearable", "not too bad" → mild
-  If there are truly no clues, use null.
-- location: Body part or area (e.g., "head", "chest"). If not mentioned or not applicable, use null.
+  Use null if truly no clues.
+- location: Body part or area (e.g., "head", "chest", "front of head"). Use null if not mentioned or not applicable.
 
-CRITICAL MISSING INFORMATION RULES:
-- Duration and severity are CRITICAL for most symptoms
-- Location is critical when relevant (e.g., pain)
-- Do NOT mark information as missing if it is clearly provided
-- Do NOT mark information as missing if the user explicitly says they don't know
-- If a symptom has duration or severity as null, AND it is important for understanding the symptom, add it to missing_info
+IMPORTANT - FOLLOW-UP HANDLING:
+- If existing symptoms are provided AND the current message is a short answer (like "head", "2 days", "moderate"), it's likely answering a follow-up question
+- UPDATE the existing symptom with this new information instead of creating a new symptom
+- Keep all previously gathered information (name, duration, severity, location) and only add/update the missing piece
 
-IMPORTANT:
-- If duration is mentioned (e.g., "for 2 days"), include it and do NOT mark it missing
-- If severity is mentioned or can be inferred, include it and do NOT mark it missing
-- If the user says "no other symptoms", do NOT mark anything as missing
-- Do NOT invent information
-- Be conservative but explicit about what is missing
+MISSING INFO RULES:
+- Only mark as missing if it's CRITICAL and NOT provided
+- Duration and severity are usually critical
+- Location is critical for pain/discomfort symptoms
+- If info is provided in ANY previous message or context, do NOT mark it missing
 
+EXAMPLE:
+Existing: headache, duration: 2 days, severity: moderate, location: null
+Current message: "front of my head"
+→ Return: headache, duration: 2 days, severity: moderate, location: front of head
+→ Missing: [] (all info collected)
 """
 
         

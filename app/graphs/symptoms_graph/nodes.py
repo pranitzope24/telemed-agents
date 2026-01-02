@@ -19,16 +19,21 @@ async def symptom_triage_node(state: SymptomsGraphState) -> dict:
     Returns updates to state (not full state).
     """
     logger.info(f"[symptom_triage_node] Processing message: {state['user_message'][:100]}...")
+    logger.info(f"[symptom_triage_node] Current context (answers_collected): {state.get('answers_collected', [])}")
+    logger.info(f"[symptom_triage_node] Existing symptoms: {state.get('structured_symptoms', [])}")
     
     agent = SymptomTriageAgent()
     
-    # Analyze symptoms
+    # Analyze symptoms with full conversation context and existing symptoms
+    context = state.get("answers_collected", [])
+    existing_symptoms = state.get("structured_symptoms", [])
     result = await agent.analyze(
         message=state["user_message"],
-        context=state.get("answers_collected", [])
+        context=context,
+        existing_symptoms=existing_symptoms
     )
     
-    logger.info(f"[symptom_triage_node] Extracted {result} symptoms, needs_more_info={result['needs_more_info']}")
+    logger.info(f"[symptom_triage_node] Extracted {len(result['symptoms'])} symptoms, needs_more_info={result['needs_more_info']}")
     
     # Return only the fields we want to update
     updates = {
@@ -90,6 +95,8 @@ async def followup_node(state: SymptomsGraphState) -> Command:
     # Store answers only (not Q&A pairs) - questions are tracked separately in questions_asked
     updated_answers = state.get("answers_collected", []).copy() if isinstance(state.get("answers_collected"), list) else []
     updated_answers.append(str(user_answer))
+    
+    logger.info(f"[followup_node] Updated answers_collected: {updated_answers}")
     
     return Command(
         goto="symptom_triage",
