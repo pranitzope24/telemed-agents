@@ -75,6 +75,17 @@ class DoctorMatchingGraphExecutor(GraphExecutor):
         
         result = await doctor_matching_graph.ainvoke(input_state, config=config)
         
+        # Check if emergency graph wants to prepend its response
+        prepend_text = handoff_data.get("prepend_to_response", "")
+        logger.info(f"[DoctorMatchingExecutor] Checking for prepend_to_response: {bool(prepend_text)}, final_response exists: {bool(result.get('final_response'))}")
+        if prepend_text and result.get("final_response"):
+            # Combine emergency first aid + doctor recommendations
+            combined = f"{prepend_text}\n\n{result['final_response']}"
+            result["final_response"] = combined
+            logger.info("[DoctorMatchingExecutor] ✅ Prepended emergency response to doctor recommendations")
+        elif prepend_text:
+            logger.warning(f"[DoctorMatchingExecutor] ⚠️ prepend_to_response found but final_response missing in result")
+        
         if "__interrupt__" in result:
             return self.handle_interrupt(result, state, intent_result, risk_result)
         else:

@@ -1,11 +1,12 @@
 """Supervisor orchestrator for intent classification and routing."""
 
-from typing import Dict, Any
+from typing import Any, Dict
+
 from app.state.graph_state import SessionState
+from app.supervisor.graph_executors import GRAPH_EXECUTORS, get_graph_executor
 from app.supervisor.intent_classifier import classify_intent
 from app.supervisor.risk_classifier import classify_risk
 from app.supervisor.router import route_to_graph
-from app.supervisor.graph_executors import get_graph_executor, GRAPH_EXECUTORS
 from app.utils.logger import get_logger
 
 logger = get_logger()
@@ -36,7 +37,7 @@ async def handle_graph_resume(message: str, state: SessionState) -> Dict[str, An
         else:
             # Check if executor has custom result handling (for handoffs)
             if hasattr(executor, '_handle_result'):
-                # Executor will handle handoff logic (e.g., symptoms → doctor matching)
+                # Executor will handle handoff logic (e.g., symptoms → doctor matching, emergency → doctor matching)
                 return await executor._handle_result(result, state)
             else:
                 # Standard completion

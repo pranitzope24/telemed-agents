@@ -146,7 +146,8 @@ def _first_aid_for_type(emergency_type: str) -> str:
 async def generate_first_aid_response(state: EmergencyGraphState) -> Dict[str, Any]:
 	"""Generate a concise first-aid response using LLM with safe fallback."""
 	emergency_type = state.get("emergency_type", "unknown")
-	logger.info(f"[generate_first_aid_response] Generating first-aid for type={emergency_type}")
+	risk_level = state.get("risk_level", "medium")
+	logger.info(f"[generate_first_aid_response] Generating first-aid for type={emergency_type}, risk={risk_level}")
 
 	try:
 		# Prepare LLM
@@ -157,7 +158,7 @@ async def generate_first_aid_response(state: EmergencyGraphState) -> Dict[str, A
 		prompt = EMERGENCY_FIRST_AID_PROMPT.format(
 			incident_summary=state.get("incident_summary", ""),
 			emergency_type=emergency_type,
-			risk_level=state.get("risk_level", "unknown"),
+			risk_level=risk_level,
 			keywords=", ".join(state.get("detected_keywords", [])) or "none",
 		)
 
@@ -173,11 +174,18 @@ async def generate_first_aid_response(state: EmergencyGraphState) -> Dict[str, A
 			f"\n🚨 Seek immediate medical attention. This assistant cannot provide emergency care.\n"
 		)
 
+	# Add doctor availability note - for ALL emergency cases, doctors will be suggested
+	# after the urgent first aid guidance
+	needs_911 = state.get("needs_911", False)
+	if risk_level == "emergency":
+		# For emergency cases: provide first aid + 911 warning + doctor follow-up
+		first_aid_text += "\n\n🏥 **After calling emergency services, we'll also help you find specialist doctors for follow-up care.**"
+
 	return {
 		"first_aid_instructions": first_aid_text,
 		"escalation_advice": "Seek immediate medical attention.",
 		"final_response": first_aid_text,
-		"needs_911": True if state.get("risk_level") == "emergency" else state.get("needs_911", False),
+		"needs_911": needs_911,
 	}
 
 
@@ -202,9 +210,41 @@ async def finalize_and_end(state: EmergencyGraphState) -> Dict[str, Any]:
 		f"[finalize_and_end] Flags={len(safety_result['safety_flags'])} Escalation={safety_result['needs_escalation']}"
 	)
 
+	# Determine if handoff to doctor matching is needed
+	# For emergency graph, risk_level is always "emergency"
+	# Always handoff to suggest doctors for follow-up care after emergency treatment
+	risk_level = state.get("risk_level", "emergency")
+	needs_911 = state.get("needs_911", False)
+	
+	# ALWAYS handoff to doctor matching for emergency cases to provide specialist recommendations
+	# User will get: First aid + 911 warning + Doctor suggestions for follow-up
+	handoff_to_doctor = True  # Always suggest doctors after emergency first aid
+	next_action = "handoff_doctor"
+	
+	logger.info(
+		f"[finalize_and_end] risk_level={risk_level}, needs_911={needs_911}, handoff_to_doctor={handoff_to_doctor}"
+	)
+	
+	# Build doctor context for handoff
+	doctor_context = {
+		"emergency_type": state.get("emergency_type", "unknown"),
+		"incident_summary": state.get("incident_summary", ""),
+		"risk_level": risk_level,
+		"first_aid_provided": True,
+		"requires_urgent_consultation": True,
+		"detected_keywords": state.get("detected_keywords", []),
+		"urgency_score": state.get("urgency_score", 0.5)
+	}
+	
+	logger.info(
+		f"[finalize_and_end] next_action={next_action}, handoff_to_doctor={handoff_to_doctor}"
+	)
+
 	return {
 		"final_response": safety_result["final_response"],
 		"safety_flags": safety_result["safety_flags"],
-		"next_action": "complete",
+		"next_action": next_action,
 		"completed": True,
+		"handoff_to_doctor": handoff_to_doctor,
+		"doctor_context": doctor_context
 	}

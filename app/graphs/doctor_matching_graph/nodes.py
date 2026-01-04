@@ -1,17 +1,19 @@
 """Doctor matching graph nodes - Simplified 2-node flow."""
 
 import json
-from typing import Dict, Any, List
-from pydantic import BaseModel, Field
+from typing import Any, Dict, List
+
 from langchain_core.tools import tool
-from app.graphs.doctor_matching_graph.state import DoctorMatchingState
-from app.graphs.doctor_matching_graph.prompts import (
-    SPECIALTY_MAPPING_PROMPT,
-    DOCTOR_SEARCH_PROMPT
-)
-from app.tools.doctor_service import search_doctors as search_doctors_api
+from pydantic import BaseModel, Field
+
 from app.config.llm import LLMConfig
 from app.constants.openai_constants import OpenaiModels
+from app.graphs.doctor_matching_graph.prompts import (
+    DOCTOR_SEARCH_PROMPT,
+    SPECIALTY_MAPPING_PROMPT,
+)
+from app.graphs.doctor_matching_graph.state import DoctorMatchingState
+from app.tools.doctor_service import search_doctors as search_doctors_api
 from app.utils.logger import get_logger
 
 logger = get_logger()
@@ -92,7 +94,33 @@ async def specialty_mapper_node(state: DoctorMatchingState) -> Dict[str, Any]:
     structured_symptoms = state.get("structured_symptoms", [])
     symptoms_summary = state.get("symptoms_summary", "")
     
-    # Build detailed symptoms string
+    logger.info(f"[specialty_mapper_node] Symptoms summary: {symptoms_summary}")
+    logger.info(f"[specialty_mapper_node] Structured symptoms: {structured_symptoms}")
+    
+    # For emergency handoffs, we need immediate care specialists
+    # Check if this is an emergency case
+    if symptoms_summary and symptoms_summary.startswith("Emergency:"):
+        # Emergency case - recommend emergency medicine and general practitioners
+        recommended_specialties = ["Emergency Medicine", "General Medicine"]
+        explanation = "Given the emergency nature of your condition, we're connecting you with emergency medicine specialists and general practitioners who can provide immediate care."
+        logger.info(f"[specialty_mapper_node] Emergency detected - recommending: {recommended_specialties}")
+    elif structured_symptoms or symptoms_summary:
+        # Regular symptom case - use default general ayurveda
+        recommended_specialties = ["General Ayurveda"]
+        explanation = "Based on your symptoms, we recommend consulting with a General Ayurveda specialist."
+        logger.info(f"[specialty_mapper_node] Regular case - recommending: {recommended_specialties}")
+    else:
+        # Fallback
+        recommended_specialties = ["General Ayurveda"]
+        explanation = "We recommend consulting with a General Ayurveda specialist."
+        logger.info("[specialty_mapper_node] No symptoms - defaulting to General Ayurveda")
+    
+    return {
+        "recommended_specialties": recommended_specialties,
+        "specialty_explanation": explanation
+    }
+
+
 # ===== Node 2: Doctor Search (LLM with Tool Calling) =====
 
 async def doctor_search_node(state: DoctorMatchingState) -> Dict[str, Any]:

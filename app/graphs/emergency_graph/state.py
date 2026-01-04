@@ -27,5 +27,9 @@ class EmergencyGraphState(TypedDict):
 	escalation_advice: Optional[str]
 	final_response: Optional[str]
 	safety_flags: List[str]
-	next_action: Literal["complete", "handoff"]
+	next_action: Literal["complete", "handoff_doctor"]
 	completed: bool
+	
+	# ===== Handoff to Doctor Matching =====
+	handoff_to_doctor: bool  # Flag to trigger doctor matching after first aid
+	doctor_context: Dict  # Context for doctor matching (emergency severity, etc.)
