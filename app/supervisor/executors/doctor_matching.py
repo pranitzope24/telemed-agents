@@ -77,14 +77,28 @@ class DoctorMatchingGraphExecutor(GraphExecutor):
         
         # Check if emergency graph wants to prepend its response
         prepend_text = handoff_data.get("prepend_to_response", "")
-        logger.info(f"[DoctorMatchingExecutor] Checking for prepend_to_response: {bool(prepend_text)}, final_response exists: {bool(result.get('final_response'))}")
-        if prepend_text and result.get("final_response"):
-            # Combine emergency first aid + doctor recommendations
+        is_emergency = handoff_data.get("source") == "emergency_graph"
+        
+        logger.info(f"[DoctorMatchingExecutor] Emergency handoff: {is_emergency}, prepend_to_response: {bool(prepend_text)}")
+        
+        if is_emergency and prepend_text:
+            # For emergency: show emergency response + JSON doctor list
+            import json
+            doctors_list = result.get("available_doctors", [])
+            
+            if doctors_list:
+                doctors_json = json.dumps(doctors_list, indent=2)
+                combined = f"{prepend_text}\n\n📋 **Available Doctors:**\n"
+            else:
+                combined = f"{prepend_text}\n\n⚠️ No doctors available at the moment. Please contact emergency services."
+            
+            result["final_response"] = combined
+            logger.info(f"[DoctorMatchingExecutor] ✅ Emergency response with {len(doctors_list)} doctors as JSON")
+        elif prepend_text and result.get("final_response"):
+            # Non-emergency handoff: combine text responses
             combined = f"{prepend_text}\n\n{result['final_response']}"
             result["final_response"] = combined
-            logger.info("[DoctorMatchingExecutor] ✅ Prepended emergency response to doctor recommendations")
-        elif prepend_text:
-            logger.warning(f"[DoctorMatchingExecutor] ⚠️ prepend_to_response found but final_response missing in result")
+            logger.info("[DoctorMatchingExecutor] ✅ Prepended response to doctor recommendations")
         
         if "__interrupt__" in result:
             return self.handle_interrupt(result, state, intent_result, risk_result)
