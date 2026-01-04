@@ -1,36 +1,34 @@
-"""Doctor matching graph state definition - Simplified."""
+"""Doctor matching graph state definition."""
 
-from typing import TypedDict, Optional, List, Dict, Any
+from typing import TypedDict, List, Dict, Any
 
 
 class DoctorMatchingState(TypedDict, total=False):
-    """Simplified state for doctor matching workflow.
+    """State for doctor matching workflow.
     
-    Only includes essential fields for the 3-node flow:
-    1. symptoms_triage_node
-    2. specialty_recommendation_node  
-    3. doctor_search_node
+    Simple 2-node flow (only receives handoffs from symptoms graph):
+    1. specialty_mapper_node: Map symptoms to Ayurvedic specialties
+    2. doctor_search_node: Search and present doctors
+    
+    This graph should NOT be called directly on first intent routing.
+    It only handles handoffs with structured symptom data.
     """
     
-    # ===== Input from handoff or user =====
-    symptoms_summary: str
-    structured_symptoms: List[Dict[str, Any]]
-    severity_level: str
-    handoff_source: str
-    user_message: str
+    # ===== Input from Handoff =====
+    session_context: Dict[str, Any]  # Contains: reported_symptoms, recent_messages, user_location_city
+    structured_symptoms: List[Dict[str, Any]]  # From symptoms graph
+    symptoms_summary: str  # Brief summary for specialty mapping
     
-    # ===== Session context (from global SessionState) =====
-    session_context: Dict[str, Any]  # Contains: reported_symptoms, recent_messages, etc.
+    # ===== Specialty Mapping Output =====
+    recommended_specialties: List[str]
+    specialty_explanation: str
     
-    # ===== Collected during flow =====
-    confirmed_specialties: List[str]
-    user_location_city: str
+    # ===== Doctor Search Output =====
+    doctor_search_results: List[Dict[str, Any]]
     
-    # ===== Search results =====
-    available_doctors: List[Dict[str, Any]]
-    
-    # ===== Output =====
+    # ===== Final Output =====
     final_response: str
     next_action: str  # "complete"
-    booking_context: Dict[str, Any]  # For UI to use when user clicks booking button
+    available_doctors: List[Dict[str, Any]]
+    booking_context: Dict[str, Any]
 

@@ -77,10 +77,10 @@ class SymptomsGraphExecutor(GraphExecutor):
         input_state = {
             "user_message": message,
             "session_id": state.session_id,
-            "raw_symptoms": message,
+            "raw_symptoms": "",  # Will be set by first triage node
             "structured_symptoms": [],
             "questions_asked": [],
-            "answers_collected": {},
+            "answers_collected": [],  # List, not dict
             "needs_more_info": False,
             "missing_info": [],
             "iteration_count": 0,

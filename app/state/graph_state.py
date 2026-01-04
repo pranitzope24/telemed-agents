@@ -63,6 +63,8 @@ class SessionState(BaseState):
     user_location_state: Optional[str] = None
     user_insurance: Optional[str] = None
     booked_appointments: List[Dict[str, Any]] = Field(default_factory=list)
+    available_doctors: List[Dict[str, Any]] = Field(default_factory=list)  # Doctors found in search
+    booking_context: Dict[str, Any] = Field(default_factory=dict)  # Context for booking (symptoms, specialties, city)
     
     # ===== Flow Control =====
     status: Literal["active", "waiting", "completed", "terminated"] = "active"
