@@ -1,10 +1,13 @@
 """Simple Redis wrapper for short-term memory."""
 
 import json
+import os
 from typing import Any, Dict, Optional
 
+from app.config.settings import get_settings
 from app.utils.logger import get_logger
 
+settings = get_settings()
 logger = get_logger()
 
 
@@ -19,13 +22,7 @@ class RedisMemory:
         
         try:
             import redis
-            self.redis_client = redis.Redis(
-                host='localhost',
-                port=6379,
-                db=0,
-                decode_responses=True,
-                socket_connect_timeout=2
-            )
+            self.redis_client = redis.Redis.from_url(settings.redis_url)
             # Test connection
             self.redis_client.ping()
             self.use_redis = True

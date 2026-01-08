@@ -25,17 +25,13 @@ class Settings(BaseSettings):
     redis_port: int = Field(default=6379, env="REDIS_PORT")
     redis_db: int = Field(default=0, env="REDIS_DB")
     redis_password: str = Field(default="", env="REDIS_PASSWORD")
+    redis_url: str = Field(default="", env="REDIS_URL")
     
     # ===== Application Configuration =====
     app_env: str = Field(default="development", env="APP_ENV")
     log_level: str = Field(default="INFO", env="LOG_LEVEL")
     session_ttl: int = Field(default=3600, env="SESSION_TTL")
     max_turns_in_memory: int = Field(default=10, env="MAX_TURNS_IN_MEMORY")
-    
-    # ===== API Configuration =====
-    # ===== API Configuration =====
-    api_host: str = Field(default="0.0.0.0", env="API_HOST")
-    api_port: int = Field(default=8000, env="API_PORT")
     
     # ===== Retry Configuration =====
     max_retries: int = Field(default=3, env="MAX_RETRIES")
