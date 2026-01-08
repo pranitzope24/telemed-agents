@@ -2,8 +2,9 @@
 
 import os
 from typing import Optional
-from pydantic_settings import BaseSettings
+
 from pydantic import Field
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
@@ -24,12 +25,6 @@ class Settings(BaseSettings):
     redis_port: int = Field(default=6379, env="REDIS_PORT")
     redis_db: int = Field(default=0, env="REDIS_DB")
     redis_password: str = Field(default="", env="REDIS_PASSWORD")
-    
-    # ===== Database Configuration =====
-    database_url: str = Field(
-        default="postgresql://user:password@localhost:5432/telemed-agent",
-        env="DATABASE_URL"
-    )
     
     # ===== Application Configuration =====
     app_env: str = Field(default="development", env="APP_ENV")
